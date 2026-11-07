@@ -1,0 +1,1 @@
+﻿const menuToggle=document.getElementById("publicMenuToggle"); const publicLinks=document.getElementById("publicLinks"); if(menuToggle&&publicLinks){menuToggle.addEventListener("click",()=>publicLinks.classList.toggle("open")); publicLinks.querySelectorAll("a").forEach(link=>link.addEventListener("click",()=>publicLinks.classList.remove("open")));}

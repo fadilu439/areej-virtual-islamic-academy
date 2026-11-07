@@ -1,0 +1,93 @@
+{% extends "base.html" %}{% block title %}Parent Portal | Areej Academy{% endblock %}{% block heading %}Parent Dashboard{% endblock %}{% block content %}
+<section class="hero parent-hero">
+  <small>FAMILY & LEARNING</small>
+  <h2>Welcome, {{ current_user.display_name }}.</h2>
+  <p>Follow your child's progress, class attendance and ongoing support in a clear overview.</p>
+  <a class="btn light" href="#children">View My Children →</a>
+  <span class="hero-mark">⌂</span>
+</section>
+
+<h2 class="section-title">Family Overview</h2>
+<section class="metrics">
+  <article><small>Children Linked</small><strong>{{ children|length }}</strong><p>Student account linked</p></article>
+  <article><small>Attendance</small><strong>Live</strong><p>School register</p></article>
+  <article><small>Results</small><strong>{{ child_results|length }}</strong><p>Recorded assessments</p></article>
+  <article><small>Payments</small><strong>Up to date</strong><p>All settled</p></article>
+</section>
+
+<section class="panel" id="children">
+  <small>STUDENT CONNECTIONS</small>
+  <h2>My Children</h2>
+  {% if children %}<div class="mini-list">{% for child in children %}<div><strong>{{ child.display_name }}</strong><span>@{{ child.username }} · Student account</span></div>{% endfor %}</div>{% else %}<div class="empty compact"><p>No student account is linked yet. Contact the academy administrator.</p></div>{% endif %}
+</section>
+
+<div class="columns">
+  <section class="panel" id="attendance">
+    <small>ATTENDANCE</small>
+    <h2>Attendance Overview</h2>
+    <div class="schedule-list">
+      <div><strong>March</strong><span>18 lessons attended</span></div>
+      <div><strong>April</strong><span>20 lessons attended</span></div>
+      <div><strong>Current trend</strong><span>Above expected target</span></div>
+    </div>
+  </section>
+
+  <section class="panel" id="results">
+    <small>ACADEMIC PROGRESS</small>
+    <h2>Results</h2>
+    {% if child_results %}<div class="mini-list">{% for r in child_results %}<div><strong>{{ r.assessment }}</strong><span>{{ r.student_name }} · {{ r.score }}/{{ r.maximum_score }}{% if r.feedback %} · {{ r.feedback }}{% endif %}</span></div>{% endfor %}</div>{% else %}<div class="empty compact"><p>Academic results will appear after assessment.</p></div>{% endif %}
+  </section>
+</div>
+
+<div class="columns">
+  <section class="panel" id="payments">
+    <small>FINANCE</small>
+    <h2>Payments</h2>
+    <div class="mini-list">
+      <div><strong>Current invoice</strong><span>Paid in full</span></div>
+      <div><strong>Next payment</strong><span>Due in 21 days</span></div>
+    </div>
+  </section>
+
+  <section class="panel" id="messages">
+    <small>COMMUNICATION</small>
+    <h2>Messages</h2>
+
+    <form class="message-form" method="post" action="{{ url_for('send_message') }}" enctype="multipart/form-data">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <div class="message-row">
+        <label for="recipient_id">Send to</label>
+        <select id="recipient_id" name="recipient_id" required>
+          <option value="">Choose a recipient</option>
+          {% for person in recipients %}
+          <option value="{{ person.id }}">{{ person.display_name }} ({{ person.role|title }})</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="message-row">
+        <label for="message_body">Message</label>
+        <textarea id="message_body" name="body" rows="3" placeholder="Write a message to your child's teacher or academy staff..."></textarea>
+      </div>
+      <div class="message-row"><label for="attachment">Image, file or voice note</label><input id="attachment" name="attachment" type="file" accept="image/*,.pdf,.doc,.docx,audio/*"></div>
+      <button class="btn primary" type="submit">Send Message</button>
+    </form>
+
+    {% if portal_messages %}
+    <div class="message-thread">
+      {% for message in portal_messages %}
+      <article class="message-item{% if message.sender_id == current_user_id %} mine{% endif %}">
+        <div class="message-head">
+          <strong>{{ message.sender_name or 'Unknown user' }}</strong>
+          <span>{{ message.sender_role|title }} · {{ message.created_at }}</span>
+        </div>
+        {% if message.body %}<p>{{ message.body }}</p>{% endif %}
+      {% if message.attachment_path %}<a class="message-attachment" href="{{ url_for('message_attachment', filename=message.attachment_path) }}">📎 {{ message.attachment_name }}</a>{% if message.attachment_type.startswith('audio/') %}<audio controls src="{{ url_for('message_attachment', filename=message.attachment_path) }}"></audio>{% endif %}{% endif %}
+      </article>
+      {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty compact"><h3>No messages yet</h3><p>Your family communication thread will appear here.</p></div>
+    {% endif %}
+  </section>
+</div>
+{% endblock %}

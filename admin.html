@@ -1,0 +1,187 @@
+{% extends "base.html" %}{% block title %}Admin Portal | Areej Academy{% endblock %}{% block heading %}Administration Dashboard{% endblock %}{% block content %}
+<section class="hero admin-hero">
+  <small>ACADEMY MANAGEMENT</small>
+  <h2>Welcome, {{ current_user.display_name }}.</h2>
+  <p>Monitor course setup, learner enquiries and the academy operation from one premium control panel.</p>
+  <a class="btn light" href="#courses">Manage Courses →</a>
+  <span class="hero-mark">⚙</span>
+</section>
+
+<h2 class="section-title">System Summary</h2>
+<section class="metrics">
+  <article><small>Courses</small><strong>{{ course_count }}</strong><p>Courses in the system</p></article>
+  <article><small>Enrollments</small><strong>{{ enrollment_count }}</strong><p>Submitted enquiries</p></article>
+  <article><small>Pending</small><strong>{{ pending_enrollments }}</strong><p>Awaiting review</p></article>
+  <article><small>Accounts</small><strong>{{ user_counts.get('student',0) + user_counts.get('staff',0) + user_counts.get('parent',0) }}</strong><p>Registered users</p></article>
+</section>
+
+<section class="panel" id="courses">
+  <div class="panel-head">
+    <div>
+      <small>ACADEMIC SETUP</small>
+      <h2>Manage Courses</h2>
+      <p class="muted">Courses added here will appear in the Student Portal.</p>
+    </div>
+    <span class="pill">{{ course_count }} total</span>
+  </div>
+
+  <form class="course-form" method="post">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div><label for="name">Course name</label><input id="name" name="name" maxlength="120" placeholder="e.g. Arabic Language" required></div>
+    <div><label for="description">Description</label><input id="description" name="description" maxlength="300" placeholder="Short description (optional)"></div>
+    <button class="btn primary" type="submit">Add Course +</button>
+  </form>
+
+  {% if courses %}
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Course</th><th>Description</th><th>Created</th><th>Action</th></tr></thead>
+        <tbody>
+          {% for c in courses %}
+          <tr>
+            <td><b>{{ c.name }}</b></td>
+            <td>{{ c.description or 'No description' }}</td>
+            <td>{{ c.created_at }}</td>
+            <td>
+              <form method="post" action="{{ url_for('delete_course',course_id=c.id) }}" onsubmit="return confirm('Delete this course?')">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+                <button class="delete" type="submit">Delete</button>
+              </form>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <div class="empty"><span>▤</span><h3>No courses added yet</h3><p>Use the form above to add the first course.</p></div>
+  {% endif %}
+</section>
+
+<div class="columns">
+  <section class="panel" id="students">
+    <div class="panel-head student-panel-head">
+      <div><small>LEARNERS</small><h2>Student Accounts</h2><p class="muted">Create login details for newly enrolled students.</p></div>
+      <button class="btn primary" type="button" id="showStudentForm" aria-expanded="false">+ Add Student</button>
+    </div>
+
+    <form class="course-form student-form" id="studentForm" method="post" hidden>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="action" value="add_student">
+      <div><label for="student_name">Student name</label><input id="student_name" name="student_name" maxlength="100" placeholder="Full name" required></div>
+      <div><label for="student_username">Username</label><input id="student_username" name="student_username" maxlength="60" autocomplete="off" placeholder="e.g. student01" required></div>
+      <div><label for="student_password">Temporary password</label><input id="student_password" name="student_password" type="password" minlength="6" autocomplete="new-password" placeholder="At least 6 characters" required></div>
+      <button class="btn primary" type="submit">Create Student Account</button>
+    </form>
+
+    {% if students %}
+      <div class="mini-list">
+        {% for student in students %}
+        <div><strong>{{ student.display_name }}</strong><span>@{{ student.username }} · Student account</span></div>
+        {% endfor %}
+      </div>
+    {% else %}
+      <div class="empty compact"><h3>No student accounts</h3><p>Use Add Student to create the first account.</p></div>
+    {% endif %}
+  </section>
+
+  <section class="panel" id="staff">
+    <div class="panel-head">
+      <div><small>TEAM</small><h2>Registered Roles</h2></div>
+      <button class="btn primary" type="button" id="showStaffForm" aria-expanded="false">+ Add Staff</button>
+    </div>
+    <form class="course-form student-form" id="staffForm" method="post" hidden>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="action" value="add_staff">
+      <div><label for="staff_name">Staff name</label><input id="staff_name" name="staff_name" maxlength="100" placeholder="Full name" required></div>
+      <div><label for="staff_username">Username</label><input id="staff_username" name="staff_username" maxlength="60" autocomplete="off" placeholder="e.g. teacher01" required></div>
+      <div><label for="staff_password">Temporary password</label><input id="staff_password" name="staff_password" type="password" minlength="6" autocomplete="new-password" placeholder="At least 6 characters" required></div>
+      <button class="btn primary" type="submit">Create Staff Account</button>
+    </form>
+    <div class="mini-list">
+      <div><strong>Students</strong><span>{{ user_counts.get('student',0) }} account(s)</span></div>
+      <div><strong>Staff</strong><span>{{ user_counts.get('staff',0) }} account(s)</span></div>
+      <div><strong>Parents</strong><span>{{ user_counts.get('parent',0) }} account(s)</span></div>
+    </div>
+  </section>
+</div>
+
+<div class="columns">
+  <section class="panel" id="parents">
+    <div class="panel-head">
+      <div><small>FAMILY ACCOUNTS</small><h2>Admissions Overview</h2></div>
+      <button class="btn primary" type="button" id="showParentForm" aria-expanded="false">+ Add Parent</button>
+    </div>
+    <form class="course-form student-form" id="parentForm" method="post" hidden>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <input type="hidden" name="action" value="add_parent">
+      <div><label for="parent_name">Parent name</label><input id="parent_name" name="parent_name" maxlength="100" placeholder="Full name" required></div>
+      <div><label for="parent_username">Username</label><input id="parent_username" name="parent_username" maxlength="60" autocomplete="off" placeholder="e.g. parent01" required></div>
+      <div><label for="parent_password">Temporary password</label><input id="parent_password" name="parent_password" type="password" minlength="6" autocomplete="new-password" placeholder="At least 6 characters" required></div>
+      <button class="btn primary" type="submit">Create Parent Account</button>
+    </form>
+    <div class="mini-list">
+      <div><strong>Pending review</strong><span>{{ pending_enrollments }} submission(s)</span></div>
+      <div><strong>Programme mix</strong><span>Qur'an, Arabic and Islamic Studies</span></div>
+      <div><strong>Support status</strong><span>Admissions team ready</span></div>
+    </div>
+  </section>
+
+  <section class="panel" id="payments">
+    <small>FINANCE & SETTINGS</small>
+    <h2>Payments & System</h2>
+    <div class="mini-list">
+      <div><strong>Payment proof storage</strong><span>Enabled</span></div>
+      <div><strong>File type validation</strong><span>JPG, PNG, PDF</span></div>
+      <div><strong>Portal access</strong><span>Student / Parent / Staff / Admin</span></div>
+      <div><strong>Weekly database backup</strong><span><a href="{{ url_for('download_backup') }}">Download backup archive</a></span></div>
+    </div>
+  </section>
+</div>
+
+<section class="panel" id="admissions">
+  <small>ADMISSIONS & CLASS ENROLMENT</small><h2>Manage Admissions and Family Links</h2>
+  {% if enrollments %}<div class="table-wrap"><table><thead><tr><th>Applicant</th><th>Programme</th><th>Status</th><th>Update</th></tr></thead><tbody>{% for e in enrollments %}<tr><td>{{ e.student_name }}</td><td>{{ e.programme }}</td><td>{{ e.status }}</td><td><form method="post" action="{{ url_for('admin_link_student') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="approve_enrollment"><input type="hidden" name="enrollment_id" value="{{ e.id }}"><select name="status"><option>Approved</option><option>Pending review</option><option>Contact required</option></select><button class="btn small">Update</button></form></td></tr>{% endfor %}</tbody></table></div>{% endif %}
+  <div class="columns"><form class="course-form" method="post" action="{{ url_for('admin_link_student') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="link_parent"><h3>Link parent to student</h3><select name="parent_id" required>{% for p in parent_accounts %}<option value="{{ p.id }}">{{ p.display_name }}</option>{% endfor %}</select><select name="student_id" required>{% for s in students %}<option value="{{ s.id }}">{{ s.display_name }}</option>{% endfor %}</select><button class="btn primary">Link accounts</button></form>
+  <form class="course-form" method="post" action="{{ url_for('admin_link_student') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="enroll_student"><h3>Enrol student in class</h3><select name="student_id" required>{% for s in students %}<option value="{{ s.id }}">{{ s.display_name }}</option>{% endfor %}</select><select name="class_id" required>{% for c in classes %}<option value="{{ c.id }}">{{ c.name }}{% if c.teacher_name %} — {{ c.teacher_name }}{% endif %}</option>{% endfor %}</select><button class="btn primary">Enrol student</button></form></div>
+</section>
+<section class="panel" id="messages">
+  <small>COMMUNICATION</small>
+  <h2>Send a Message</h2>
+  <form class="message-form" method="post" action="{{ url_for('send_message') }}" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="message-row">
+      <label for="recipient_id">Send to</label>
+      <select id="recipient_id" name="recipient_id" required>
+        <option value="">Choose a recipient</option>
+        {% for person in recipients %}
+        <option value="{{ person.id }}">{{ person.display_name }} ({{ person.role|title }})</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="message-row">
+      <label for="message_body">Message</label>
+      <textarea id="message_body" name="body" rows="3" placeholder="Write a message to a student, staff member, parent or admin..."></textarea>
+    </div>
+    <div class="message-row"><label for="attachment">Image, file or voice note</label><input id="attachment" name="attachment" type="file" accept="image/*,.pdf,.doc,.docx,audio/*"></div>
+    <button class="btn primary" type="submit">Send Message</button>
+  </form>
+
+  {% if portal_messages %}
+  <div class="message-thread">
+    {% for message in portal_messages %}
+    <article class="message-item{% if message.sender_id == current_user_id %} mine{% endif %}">
+      <div class="message-head">
+        <strong>{{ message.sender_name or 'Unknown user' }}</strong>
+        <span>{{ message.sender_role|title }} · {{ message.created_at }}</span>
+      </div>
+      {% if message.body %}<p>{{ message.body }}</p>{% endif %}
+      {% if message.attachment_path %}<a class="message-attachment" href="{{ url_for('message_attachment', filename=message.attachment_path) }}">📎 {{ message.attachment_name }}</a>{% if message.attachment_type.startswith('audio/') %}<audio controls src="{{ url_for('message_attachment', filename=message.attachment_path) }}"></audio>{% endif %}{% endif %}
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty compact"><h3>No messages yet</h3><p>Your communication thread will appear here.</p></div>
+  {% endif %}
+</section>
+{% endblock %}

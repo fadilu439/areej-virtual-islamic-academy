@@ -1,0 +1,99 @@
+{% extends "base.html" %}{% block title %}Student Portal | Areej Academy{% endblock %}{% block heading %}Student Dashboard{% endblock %}{% block content %}
+<section class="hero student-hero">
+  <small>YOUR LEARNING SPACE</small>
+  <h2>Welcome, {{ current_user.display_name }}.</h2>
+  <p>Track your Qur'an, Arabic and Islamic Studies journey in one clear, motivating dashboard.</p>
+  <a class="btn light" href="#courses">Explore My Courses →</a>
+  <span class="hero-mark">✦</span>
+</section>
+
+<h2 class="section-title">Academic Summary</h2>
+<section class="metrics">
+  <article><small>My Courses</small><strong>{{ courses|length }}</strong><p>Courses available</p></article>
+  <article><small>Attendance</small><strong>94%</strong><p>Progress update</p></article>
+  <article><small>Assignments</small><strong>5</strong><p>Due this month</p></article>
+  <article><small>Results</small><strong>Good</strong><p>Performance trend</p></article>
+</section>
+
+<section class="panel" id="courses">
+  <div class="panel-head">
+    <div>
+      <small>LEARNING</small>
+      <h2>My Courses</h2>
+    </div>
+    <span class="pill">{{ courses|length }} courses</span>
+  </div>
+  {% if courses %}
+    <div class="course-grid">
+      {% for c in courses %}
+        <article class="course">
+          <span class="course-icon">▤</span>
+          <h3>{{ c.name }}</h3>
+          <p>{{ c.description or 'Course details will be provided by the academy.' }}</p>
+          <a href="#classes">Continue learning</a>
+        </article>
+      {% endfor %}
+    </div>
+  {% else %}
+    <div class="empty"><span>▤</span><h3>No courses available yet</h3><p>Courses will appear here when the academy adds them.</p></div>
+  {% endif %}
+</section>
+
+<div class="columns">
+  <section class="panel" id="classes">
+    <small>YOUR TIMETABLE</small>
+    <h2>My Classes</h2>
+    {% if classes %}<div class="schedule-list">{% for c in classes %}<div><strong>{{ c.name }}</strong>{% if c.meeting_url %}<a href="{{ c.meeting_url }}" target="_blank" rel="noopener">Join live class</a>{% endif %}<span>{{ c.schedule or 'Schedule to be confirmed' }} · {{ c.channel }}</span></div>{% endfor %}</div>{% else %}<div class="empty compact"><p>Your enrolled live classes will appear here.</p></div>{% endif %}
+  </section>
+
+  <section class="panel" id="assignments">
+    <small>ACADEMIC WORK</small>
+    <h2>Assignments & Results</h2>
+    {% if assignments %}<div class="mini-list">{% for a in assignments %}<div><strong>{{ a.title }}</strong><span>{{ a.class_name }} · Due {{ a.due_date or 'not set' }}</span></div>{% endfor %}</div>{% else %}<div class="empty compact"><p>No assignments yet.</p></div>{% endif %}
+    <details class="portal-details"><summary>Submit work</summary><form class="course-form" method="post" action="{{ url_for('submit_assignment') }}" enctype="multipart/form-data">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><div><label>Assignment</label><select name="assignment_id" required>{% for a in assignments %}<option value="{{ a.id }}">{{ a.title }}</option>{% endfor %}</select></div>
+      <div><label>Response</label><textarea name="content" rows="3"></textarea></div><div><label>File</label><input name="submission_file" type="file"></div><button class="btn primary">Submit</button></form></details>
+  </section>
+</div>
+
+<section class="panel" id="messages">
+  <small>COMMUNICATION</small>
+  <h2>Messages & Announcements</h2>
+
+  <form class="message-form" method="post" action="{{ url_for('send_message') }}" enctype="multipart/form-data">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="message-row">
+      <label for="recipient_id">Send to</label>
+      <select id="recipient_id" name="recipient_id" required>
+        <option value="">Choose a recipient</option>
+        {% for person in recipients %}
+        <option value="{{ person.id }}">{{ person.display_name }} ({{ person.role|title }})</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="message-row">
+      <label for="message_body">Message</label>
+      <textarea id="message_body" name="body" rows="3" placeholder="Write a message to your teacher, classmates, admin or parents..."></textarea>
+    </div>
+    <div class="message-row"><label for="attachment">Image, file or voice note</label><input id="attachment" name="attachment" type="file" accept="image/*,.pdf,.doc,.docx,audio/*"></div>
+    <button class="btn primary" type="submit">Send Message</button>
+  </form>
+
+  {% if portal_messages %}
+  <div class="message-thread">
+    {% for message in portal_messages %}
+    <article class="message-item{% if message.sender_id == current_user_id %} mine{% endif %}">
+      <div class="message-head">
+        <strong>{{ message.sender_name or 'Unknown user' }}</strong>
+        <span>{{ message.sender_role|title }} · {{ message.created_at }}</span>
+      </div>
+      {% if message.body %}<p>{{ message.body }}</p>{% endif %}
+      {% if message.attachment_path %}<a class="message-attachment" href="{{ url_for('message_attachment', filename=message.attachment_path) }}">📎 {{ message.attachment_name }}</a>{% if message.attachment_type.startswith('audio/') %}<audio controls src="{{ url_for('message_attachment', filename=message.attachment_path) }}"></audio>{% endif %}{% endif %}
+    </article>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="empty compact"><h3>No messages yet</h3><p>Your messages will appear here.</p></div>
+  {% endif %}
+</section>
+{% endblock %}
