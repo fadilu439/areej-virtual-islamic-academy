@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: areej-academy
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.2
+      - key: AREEJ_SECRET_KEY
+        generateValue: true
+      - key: AREEJ_DATA_DIR
+        value: /tmp/areej-data
+      - key: AREEJ_DB_PATH
+        value: /tmp/areej-data/areej_academy.db
