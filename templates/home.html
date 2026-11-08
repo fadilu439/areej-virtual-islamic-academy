@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>AREEJ Virtual Islamic Academy | Home</title>
+  <meta name="description" content="Authentic Islamic education through modern online learning.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:wght@400;700&family=Manrope:wght@400;500;600;700&family=Noto+Naskh+Arabic:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/public.css') }}">
+</head>
+<body>
+  <header class="public-header">
+    <div class="container top-nav">
+      <a class="public-brand" href="#home" aria-label="AREEJ Academy home">
+        <img class="brand-mark" src="{{ url_for('static', filename='images/academy-logo.png') }}" alt="AREEJ logo">
+        <span class="brand-copy"><strong>AREEJ</strong><small>Virtual Islamic Academy</small></span>
+      </a>
+      <button class="menu-toggle" id="publicMenuToggle" aria-label="Open navigation">☰</button>
+      <nav class="public-links" id="publicLinks">
+        <a href="#home">Home</a>
+        <a href="#about">About Us</a>
+        <a href="#programmes">Curriculum</a>
+        <a href="#learning-path">Learning Path</a>
+        <a href="#admissions">Admissions</a>
+        <a href="#portals">Portals</a>
+        <a href="#contact">Contact</a>
+        <a class="nav-button nav-login" href="{{ url_for('login') }}">Login</a>
+      </nav>
+    </div>
+  </header>
+
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}<div class="flash-public {{ category }}">{{ message }}</div>{% endfor %}
+  {% endwith %}
+
+  <main>
+    <section class="hero-public" id="home">
+      <div class="hero-pattern"></div>
+      <div class="container hero-grid">
+        <div class="hero-copy">
+          <span class="hero-kicker">Areej Virtual Islamic Academy</span>
+          <h1>Faith, knowledge and character through online Islamic learning.</h1>
+          <p>Begin a structured journey in Qur'an, Tajweed, Hifz, Arabic and Islamic Studies with authentic teaching, caring tutors and flexible online learning.</p>
+          <div class="hero-actions"><a class="public-button primary-button" href="#admissions">Enroll Now →</a><a class="text-link" href="#about">Discover Areej →</a></div>
+        </div>
+        <div class="hero-seal-wrap">
+          <div class="hero-image-card">
+            <img src="{{ url_for('static', filename='images/homepage-hero.png') }}" alt="Students learning in a modern Islamic educational environment">
+            <div class="image-chip">
+              <span>Online learning</span>
+              <strong>Live classes</strong>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="program-summary" aria-label="Academy programme summary">
+      <div class="container summary-grid">
+        <article><strong>Online</strong><span>Learning</span></article>
+        <article><strong>Flexible</strong><span>Schedule</span></article>
+        <article><strong>Qur'an</strong><span>& Tajweed</span></article>
+        <article><strong>Arabic</strong><span>& Islamic Studies</span></article>
+        <article><strong>All Ages</strong><span>Children to Adults</span></article>
+        <a href="#admissions">Register Now</a>
+      </div>
+    </section>
+
+    <section class="about-feature" id="about">
+      <div class="container about-grid">
+        <article>
+          <span class="section-kicker">About Areej Academy</span>
+          <h2>Accessible Islamic education for every learner</h2>
+          <p>AREEJ Virtual Islamic Academy is an online Islamic educational institution committed to providing accessible, structured and high-quality education to students wherever they are.</p>
+          <p>Our programmes combine authentic Islamic knowledge with modern digital learning, helping students understand and practise what they learn.</p>
+          <a class="text-link" href="#vision">Find out more →</a>
+        </article>
+        <div class="about-art">
+          <img src="{{ url_for('static', filename='images/children-learning.png') }}" alt="Children learning in a welcoming educational environment">
+        </div>
+      </div>
+    </section>
+
+    <section class="programme-section" id="programmes">
+      <div class="container">
+        <div class="programme-heading">
+          <div><span class="section-kicker">The Programme</span><h2>Our educational curriculum</h2></div>
+          <p>AREEJ provides a structured curriculum designed to build knowledge, understanding, practice and good character.</p>
+        </div>
+        <div class="programme-track">
+          <article><span>ق</span><h3>Qur'an</h3><p>Reading, Tajweed, Hifz and Muraja'ah.</p></article>
+          <article><span>ع</span><h3>Arabic</h3><p>Reading, writing, grammar and conversation.</p></article>
+          <article><span>س</span><h3>Seerah</h3><p>Learn the life and guidance of the Prophet ﷺ.</p></article>
+          <article><span>ف</span><h3>Fiqh</h3><p>Understand acts of worship and daily rulings.</p></article>
+          <article><span>ح</span><h3>Hadith</h3><p>Authentic narrations and practical meanings.</p></article>
+          <article><span>أ</span><h3>Tarbiyah</h3><p>Faith, manners and Islamic character.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="hadith-band">
+      <div class="container hadith-inner">
+        <span>The Messenger of Allah ﷺ said:</span>
+        <blockquote>“Whoever travels a path in search of knowledge, Allah will make easy for him a path to Paradise.”</blockquote>
+        <small>Sahih Muslim</small>
+      </div>
+    </section>
+
+    <section class="learning-section" id="learning-path">
+      <div class="container learning-head">
+        <div><span class="section-kicker">Learning Path</span><h2>Begin your journey with Areej</h2></div>
+        <div><p>Choose a programme, complete the simple admission process and begin learning with your dedicated tutor.</p><a class="text-link" href="#admissions">Find out more →</a></div>
+      </div>
+      <div class="container learning-steps">
+        <article><span class="step-icon">01</span><div><small>Step 1</small><h3>Select a Programme and Register</h3><p>Choose the learning path most suitable for the student.</p></div></article>
+        <article><span class="step-icon">02</span><div><small>Step 2</small><h3>Receive Learning Resources</h3><p>Access lessons, materials and digital Qur'an resources.</p></div></article>
+        <article><span class="step-icon">03</span><div><small>Step 3</small><h3>Attend Online Classes</h3><p>Learn weekly with scheduled live lessons and tutor support.</p></div></article>
+        <article><span class="step-icon">04</span><div><small>Step 4</small><h3>Complete Assessment</h3><p>Receive class, assignment and Qur'an progress feedback.</p></div></article>
+        <article><span class="step-icon">05</span><div><small>Step 5</small><h3>Earn a Certificate</h3><p>Successful students receive academy certificates.</p></div></article>
+      </div>
+    </section>
+
+    <section class="vision-section" id="vision">
+      <div class="container vision-grid">
+        <article class="vision-card">
+          <span class="section-kicker">Our Vision</span>
+          <h2>Faithful, knowledgeable and principled Muslims</h2>
+          <p>To become a leading virtual academy providing authentic, accessible and high-quality Islamic education that nurtures faith, knowledge and morally upright character.</p>
+          <img src="{{ url_for('static', filename='images/quran-learning.png') }}" alt="Qur'an learning session">
+        </article>
+        <article class="mission-card">
+          <span class="section-kicker">Our Mission</span>
+          <h2>Education built for understanding</h2>
+          <p>We combine authentic knowledge with modern methods to develop faith, knowledge, character and lifelong learning skills through Qur'an, Arabic and Islamic Studies.</p>
+          <a class="public-button primary-button" href="#programmes">Explore Our Programme →</a>
+          <img src="{{ url_for('static', filename='images/online-learning.png') }}" alt="Student learning online">
+        </article>
+      </div>
+    </section>
+
+    <section class="admissions-section" id="admissions">
+      <div class="container admissions-grid">
+        <div class="admissions-copy">
+          <span class="section-kicker">Admissions</span>
+          <h2>Start your learning journey</h2>
+          <p>Complete the admission enquiry below. Our team will guide you through assessment, admission and class placement.</p>
+          <div class="admission-process"><span>Apply</span><span>Assessment</span><span>Admission</span><span>Placement</span><span>Learning</span></div>
+        </div>
+        <form class="enquiry-form" action="{{ url_for('admission_enquiry') }}" method="post" enctype="multipart/form-data">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+          <div class="form-grid">
+            <div><label for="student_name">Student name</label><input id="student_name" name="student_name" required></div>
+            <div><label for="programme">Programme</label><select id="programme" name="programme" required><option value="">Select programme</option><option>Qur'an Reading</option><option>Tajweed</option><option>Hifz</option><option>Arabic Language</option><option>Islamic Studies</option><option>Children's Programme</option><option>Youth Programme</option><option>Adult Education</option></select></div>
+            <div><label for="guardian_name">Guardian / Applicant</label><input id="guardian_name" name="guardian_name" required></div>
+            <div><label for="phone">Phone / WhatsApp</label><input id="phone" name="phone" required></div>
+            <div><label for="email">Email</label><input id="email" name="email" type="email"></div>
+            <div><label for="location">Country / City</label><input id="location" name="location"></div>
+            <div class="form-full"><label for="payment_proof">Payment proof (optional: JPG, PNG or PDF)</label><input id="payment_proof" name="payment_proof" type="file" accept=".jpg,.jpeg,.png,.pdf"></div>
+          </div>
+          <button class="public-button primary-button" type="submit">Submit Enrollment Enquiry →</button>
+        </form>
+      </div>
+    </section>
+
+    <section class="portals-section" id="portals">
+      <div class="container">
+        <div class="section-centred"><span class="section-kicker">Online Portals</span><h2>Everyone stays connected</h2><p>Secure spaces for students, parents and teachers.</p></div>
+        <div class="portal-grid">
+          <article id="students"><img src="{{ url_for('static', filename='images/online-learning.png') }}" alt="Student portal preview"><span class="portal-number">01</span><h3>Student Portal</h3><p>Classes, assignments, attendance, results, Qur'an progress, materials and certificates.</p><a href="{{ url_for('login') }}">Student login →</a></article>
+          <article id="parents"><img src="{{ url_for('static', filename='images/children-learning.png') }}" alt="Parent portal preview"><span class="portal-number">02</span><h3>Parent Portal</h3><p>Academic progress, attendance, results, feedback, assignments and payment information.</p><a href="{{ url_for('login') }}">Parent login →</a></article>
+          <article id="teachers"><img src="{{ url_for('static', filename='images/arabic-learning.png') }}" alt="Teacher portal preview"><span class="portal-number">03</span><h3>Teacher Portal</h3><p>Manage classes, attendance, materials, assessments and learner progress.</p><a href="{{ url_for('login') }}">Teacher login →</a></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="news-section" id="news">
+      <div class="container news-grid">
+        <article><span class="section-kicker">Academy News</span><h2>News & announcements</h2><p>Find examination schedules, academy programmes, student achievements, competitions and important notices.</p></article>
+        <article><img src="{{ url_for('static', filename='images/islamic-library.png') }}" alt="Islamic library and study environment"></article>
+        <article><small>Academy</small><h3>Admissions are open</h3><p>Explore programmes for children, youth and adults.</p></article>
+        <article><small>Learning</small><h3>Flexible online classes</h3><p>Study with your tutor from wherever you are.</p></article>
+      </div>
+    </section>
+
+    <section class="contact-section" id="contact">
+      <div class="container contact-grid"><div><span class="section-kicker">Contact & Support</span><h2>How can we help?</h2><p>For admissions and portal support, contact the academy administration or send an enquiry through the admissions form.</p></div><div class="contact-actions"><a href="#admissions">Enrollment enquiry</a><a href="{{ url_for('login') }}">Portal login</a></div></div>
+    </section>
+  </main>
+
+  <footer class="public-footer">
+    <div class="container footer-grid">
+      <div><div class="footer-brand"><span>A</span><strong>AREEJ</strong></div><p>Nurturing faith, knowledge and character through accessible online Islamic education.</p></div>
+      <div><strong>About Areej</strong><a href="#about">Academy Profile</a><a href="#vision">Vision & Mission</a><a href="#contact">Contact</a></div>
+      <div><strong>Learning</strong><a href="#programmes">Curriculum</a><a href="#learning-path">Learning Path</a><a href="#admissions">Admissions</a></div>
+      <div><strong>Portals</strong><a href="{{ url_for('login') }}">Student</a><a href="{{ url_for('login') }}">Parent</a><a href="{{ url_for('login') }}">Teacher</a></div>
+    </div>
+    <div class="container copyright">© {{ year }} AREEJ Virtual Islamic Academy</div>
+  </footer>
+  <script src="{{ url_for('static', filename='js/public.js') }}"></script>
+</body>
+</html>
