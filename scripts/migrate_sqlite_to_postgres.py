@@ -5,8 +5,8 @@ Usage (PowerShell):
   $env:DATABASE_URL = "postgresql://..."
   python scripts/migrate_sqlite_to_postgres.py
 
-The script never deletes or modifies the SQLite source. It stops if the
-destination contains rows, preserving any pre-existing Supabase data.
+The script never deletes or modifies the SQLite source. It validates all
+source/destination table columns before writing, and refuses non-empty targets.
 """
 from __future__ import annotations
 
@@ -35,6 +35,25 @@ TABLES = (
 )
 
 
+def source_columns(src: sqlite3.Connection, table: str) -> set[str]:
+    exists = src.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        (table,),
+    ).fetchone()
+    if not exists:
+        raise RuntimeError(f"Source SQLite table is missing: {table}")
+    return {row["name"] for row in src.execute(f'PRAGMA table_info("{table}")')}
+
+
+def destination_columns(dst: psycopg.Connection, table: str) -> set[str]:
+    rows = dst.execute(
+        "SELECT column_name FROM information_schema.columns "
+        "WHERE table_schema = 'areej_app' AND table_name = %s",
+        (table,),
+    ).fetchall()
+    return {row[0] for row in rows}
+
+
 def main() -> int:
     sqlite_path = os.environ.get("AREEJ_SQLITE_PATH")
     database_url = os.environ.get("DATABASE_URL")
@@ -51,8 +70,29 @@ def main() -> int:
     src.row_factory = sqlite3.Row
     try:
         with psycopg.connect(database_url) as dst:
-            dst.execute("SET search_path TO areej_app, public")
+            schema_exists = dst.execute(
+                "SELECT 1 FROM information_schema.schemata WHERE schema_name='areej_app'"
+            ).fetchone()
+            if not schema_exists:
+                raise RuntimeError(
+                    "Destination schema areej_app is missing. Apply the reviewed "
+                    "SQL migration before running this script."
+                )
+
+            # Validate every source and destination table before the first insert.
             for table in TABLES:
+                source_set = source_columns(src, table)
+                destination_set = destination_columns(dst, table)
+                if not destination_set:
+                    raise RuntimeError(f"Destination table is missing: areej_app.{table}")
+                if source_set != destination_set:
+                    missing = sorted(source_set - destination_set)
+                    extra = sorted(destination_set - source_set)
+                    raise RuntimeError(
+                        f"Column mismatch for {table}. Missing in destination: "
+                        f"{missing}; extra in destination: {extra}. No data was copied."
+                    )
+
                 count = dst.execute(
                     sql.SQL("SELECT count(*) FROM areej_app.{}").format(
                         sql.Identifier(table)
@@ -66,9 +106,7 @@ def main() -> int:
 
             # All writes happen in one PostgreSQL transaction.
             for table in TABLES:
-                rows = src.execute(
-                    f'SELECT * FROM "{table}"'
-                ).fetchall()
+                rows = src.execute(f'SELECT * FROM "{table}"').fetchall()
                 if not rows:
                     print(f"{table}: 0 rows")
                     continue
