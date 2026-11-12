@@ -137,3 +137,9 @@ create index if not exists idx_areej_classes_teacher
   on areej_app.classes(teacher_id);
 create index if not exists idx_areej_enrollments_created
   on areej_app.enrollments(created_at);
+
+-- This compatibility schema is for the server-side Flask connection only.
+-- Keep it inaccessible through the Supabase Data API and client roles.
+revoke all on schema areej_app from public, anon, authenticated;
+revoke all on all tables in schema areej_app from public, anon, authenticated;
+revoke all on all sequences in schema areej_app from public, anon, authenticated;
