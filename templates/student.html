@@ -56,44 +56,5 @@
   </section>
 </div>
 
-<section class="panel" id="messages">
-  <small>COMMUNICATION</small>
-  <h2>Messages & Announcements</h2>
-
-  <form class="message-form" method="post" action="{{ url_for('send_message') }}" enctype="multipart/form-data">
-    <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-    <div class="message-row">
-      <label for="recipient_id">Send to</label>
-      <select id="recipient_id" name="recipient_id" required>
-        <option value="">Choose a recipient</option>
-        {% for person in recipients %}
-        <option value="{{ person.id }}">{{ person.display_name }} ({{ person.role|title }})</option>
-        {% endfor %}
-      </select>
-    </div>
-    <div class="message-row">
-      <label for="message_body">Message</label>
-      <textarea id="message_body" name="body" rows="3" placeholder="Write a message to your teacher, classmates, admin or parents..."></textarea>
-    </div>
-    <div class="message-row"><label for="attachment">Image, file or voice note</label><input id="attachment" name="attachment" type="file" accept="image/*,.pdf,.doc,.docx,audio/*"></div>
-    <button class="btn primary" type="submit">Send Message</button>
-  </form>
-
-  {% if portal_messages %}
-  <div class="message-thread">
-    {% for message in portal_messages %}
-    <article class="message-item{% if message.sender_id == current_user_id %} mine{% endif %}">
-      <div class="message-head">
-        <strong>{{ message.sender_name or 'Unknown user' }}</strong>
-        <span>{{ message.sender_role|title }} · {{ message.created_at }}</span>
-      </div>
-      {% if message.body %}<p>{{ message.body }}</p>{% endif %}
-      {% if message.attachment_path %}<a class="message-attachment" href="{{ url_for('message_attachment', filename=message.attachment_path) }}">📎 {{ message.attachment_name }}</a>{% if message.attachment_type.startswith('audio/') %}<audio controls src="{{ url_for('message_attachment', filename=message.attachment_path) }}"></audio>{% endif %}{% endif %}
-    </article>
-    {% endfor %}
-  </div>
-  {% else %}
-  <div class="empty compact"><h3>No messages yet</h3><p>Your messages will appear here.</p></div>
-  {% endif %}
-</section>
+{% include "_messages.html" %}
 {% endblock %}
