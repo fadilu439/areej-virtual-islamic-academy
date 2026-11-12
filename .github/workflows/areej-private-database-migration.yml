@@ -1,0 +1,81 @@
+name: Areej private database migration
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: "Type MIGRATE to copy the private backup into the empty areej_app schema"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  migrate:
+    if: ${{ inputs.confirm == 'MIGRATE' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out migration branch
+        uses: actions/checkout@v4
+        with:
+          ref: feature/supabase-migration
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install migration dependencies
+        run: python -m pip install "psycopg[binary]>=3.2,<4" "supabase==2.34.1"
+
+      - name: Download private SQLite backup from Supabase Storage
+        env:
+          SUPABASE_URL: https://kgbovsrccrshtntrihnr.supabase.co
+          SUPABASE_SECRET_KEY: ${{ secrets.AREEJ_SUPABASE_SECRET_KEY }}
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          from supabase import create_client
+
+          client = create_client(
+              os.environ["SUPABASE_URL"],
+              os.environ["SUPABASE_SECRET_KEY"],
+          )
+          data = client.storage.from_("areej-private-files").download("areej_academy_cleaned.db")
+          path = Path("areej_academy_cleaned.db")
+          path.write_bytes(data)
+          print(f"Private backup downloaded to runner ({path.stat().st_size} bytes).")
+          PY
+
+      - name: Copy records into isolated areej_app schema
+        env:
+          AREEJ_SQLITE_PATH: areej_academy_cleaned.db
+          DATABASE_URL: ${{ secrets.AREEJ_DATABASE_URL }}
+        run: python scripts/migrate_sqlite_to_postgres.py
+
+      - name: Verify migrated row counts
+        env:
+          DATABASE_URL: ${{ secrets.AREEJ_DATABASE_URL }}
+        run: |
+          python - <<'PY'
+          import os
+          import psycopg
+
+          tables = (
+              "users", "courses", "enrollments", "messages", "classes",
+              "enrollments_academic", "attendance", "assignments",
+              "assignment_submissions", "results", "learning_materials",
+              "announcements", "parent_links",
+          )
+          with psycopg.connect(os.environ["DATABASE_URL"]) as conn:
+              for table in tables:
+                  count = conn.execute(f'SELECT count(*) FROM areej_app."{table}"').fetchone()[0]
+                  print(f"{table}: {count}")
+          PY
+
+      - name: Remove temporary database backup
+        if: always()
+        run: rm -f areej_academy_cleaned.db
