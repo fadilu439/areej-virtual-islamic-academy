@@ -33,9 +33,71 @@ $env:AREEJ_SQLITE_PATH = "C:\\private\\backup\\areej_academy.db"
 $env:DATABASE_URL = "YOUR_PRIVATE_POSTGRES_CONNECTION_STRING"
 python scripts/migrate_sqlite_to_postgres.py
 ```
-The script prints copied row counts. It does not migrate uploaded files; those need a separate private Supabase Storage migration and URL/path update.
+The script prints copied row counts. It does not migrate uploaded files; use the separate Storage migration procedure below.
 
 ## Flask connection switch (staging only)
 After the schema is created and the data-copy script succeeds, configure the **staging environment only** with `AREEJ_DATABASE_URL` set to the private PostgreSQL connection string. The app keeps SQLite mode when this variable is absent. Do not add this variable to the production Render service yet. The current username/password login remains Werkzeug hash verification against the copied `users.password_hash`; the hash is copied unchanged, so no password is needed for the data copy. Do not remove or recreate the existing admin account.
 
 The app's PostgreSQL backup-download route currently returns HTTP 503; use the private migration backup procedure until a PostgreSQL backup/export workflow is implemented. Uploaded files are still stored on the app filesystem and have not yet been migrated to Supabase Storage. Do not cut over production until uploads, database backup/restore, connection pooling, and full portal tests are complete.
+
+
+## Private file storage (staging only)
+
+The app includes `storage_backend.py`. Local disk remains the default. When
+`AREEJ_STORAGE_BACKEND=supabase` is enabled, new payment proofs, message
+attachments, and assignment submissions are uploaded to the private bucket
+named by `AREEJ_SUPABASE_BUCKET` (default: `areej-private-files`). Message
+downloads still pass through the Flask route, which checks that the logged-in
+user is the sender or recipient before retrieving the object. No Storage URL or
+secret key is sent to the browser.
+
+### Create the bucket
+1. In Supabase Dashboard → Storage, create a bucket named
+   `areej-private-files`.
+2. Set it to **Private** (never public).
+3. Set the maximum file size to 5 MB to match the Flask request limit.
+4. Do not add public read policies. The Flask server uses a server-only secret
+   key; keep it in the staging service's private environment variables only.
+
+### Copy files after the database rows have been copied
+Keep the original SQLite backup and its `uploads` directory together. In a
+trusted local PowerShell terminal, set the following variables privately
+(values must not be pasted into chat or committed):
+```powershell
+$env:AREEJ_SQLITE_PATH = "C:\\private\\backup\\areej_academy.db"
+$env:AREEJ_UPLOADS_ROOT = "C:\\private\\backup"
+$env:DATABASE_URL = "YOUR_PRIVATE_POSTGRES_CONNECTION_STRING"
+$env:SUPABASE_URL = "YOUR_SUPABASE_PROJECT_URL"
+$env:SUPABASE_SECRET_KEY = "YOUR_SERVER_ONLY_SECRET_KEY"
+$env:AREEJ_SUPABASE_BUCKET = "areej-private-files"
+python scripts/migrate_uploads_to_supabase.py
+```
+The script opens SQLite read-only, checks that every referenced local file and
+destination row exists before uploading, then updates the PostgreSQL paths in a
+transaction. If interrupted after uploads, rerunning is safe because it uses
+stable object paths with upsert. It does not delete the source files.
+
+### Enable Storage in staging
+Only after the file-copy script succeeds, configure the **staging** service:
+```text
+AREEJ_STORAGE_BACKEND=supabase
+SUPABASE_URL=<project URL>
+SUPABASE_SECRET_KEY=<server-only secret key>
+AREEJ_SUPABASE_BUCKET=areej-private-files
+```
+Do not set these on production Render yet. Do not use the publishable/anon key
+as a substitute for the server secret. Rotate any secret key that has ever been
+shared in chat, screenshots, logs, or source control.
+
+### Current limitations and required tests
+- The existing app currently has a protected message-attachment download route.
+  Payment-proof and assignment-file viewing workflows still need end-to-end UI
+  coverage before cutover.
+- The migration script requires a complete, fresh SQLite backup plus the
+  matching uploads directory. It cannot recover files already lost from an
+  ephemeral Render filesystem.
+- Test all four portals, file upload/download permissions, missing files,
+  oversized uploads, database restore, and rollback before changing production.
+- Storage object uploads happen before the PostgreSQL path update transaction;
+  a failed database update may leave an unreferenced private object. Rerunning
+  is safe, and cleanup can be done after verifying the migrated records.
