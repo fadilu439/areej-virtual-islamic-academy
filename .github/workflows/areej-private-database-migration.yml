@@ -32,7 +32,7 @@ jobs:
 
       - name: Download private SQLite backup from Supabase Storage
         env:
-          SUPABASE_URL: ${{ secrets.AREEJ_SUPABASE_URL }}
+          SUPABASE_URL: https://kgbovsrccrshtntrihnr.supabase.co
           SUPABASE_SECRET_KEY: ${{ secrets.AREEJ_SUPABASE_SECRET_KEY }}
         run: |
           python - <<'PY'
