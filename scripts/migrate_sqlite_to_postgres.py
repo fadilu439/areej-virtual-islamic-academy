@@ -104,24 +104,26 @@ def main() -> int:
                         f"({count} rows). Refusing to overwrite."
                     )
 
-            # All writes happen in one PostgreSQL transaction.
-            for table in TABLES:
-                rows = src.execute(f'SELECT * FROM "{table}"').fetchall()
-                if not rows:
-                    print(f"{table}: 0 rows")
-                    continue
+            # All writes happen in one PostgreSQL transaction. In psycopg 3,
+            # executemany() belongs to a cursor, not the connection object.
+            with dst.cursor() as cur:
+                for table in TABLES:
+                    rows = src.execute(f'SELECT * FROM "{table}"').fetchall()
+                    if not rows:
+                        print(f"{table}: 0 rows")
+                        continue
 
-                columns = list(rows[0].keys())
-                insert = sql.SQL("INSERT INTO areej_app.{} ({}) VALUES ({})").format(
-                    sql.Identifier(table),
-                    sql.SQL(", ").join(map(sql.Identifier, columns)),
-                    sql.SQL(", ").join(sql.Placeholder() for _ in columns),
-                )
-                dst.executemany(
-                    insert,
-                    [tuple(row[column] for column in columns) for row in rows],
-                )
-                print(f"{table}: copied {len(rows)} rows")
+                    columns = list(rows[0].keys())
+                    insert = sql.SQL("INSERT INTO areej_app.{} ({}) VALUES ({})").format(
+                        sql.Identifier(table),
+                        sql.SQL(", ").join(map(sql.Identifier, columns)),
+                        sql.SQL(", ").join(sql.Placeholder() for _ in columns),
+                    )
+                    cur.executemany(
+                        insert,
+                        [tuple(row[column] for column in columns) for row in rows],
+                    )
+                    print(f"{table}: copied {len(rows)} rows")
 
             # Preserve SQLite integer IDs and make future generated IDs continue safely.
             for table in TABLES:
