@@ -30,7 +30,7 @@ class PostgresCompatConnection:
 
         if upper.startswith("INSERT OR IGNORE INTO "):
             query = re.sub(
-                r"^INSERT\\s+OR\\s+IGNORE\\s+INTO",
+                r"^INSERT\s+OR\s+IGNORE\s+INTO",
                 "INSERT INTO",
                 query,
                 count=1,
@@ -40,14 +40,14 @@ class PostgresCompatConnection:
 
         elif upper.startswith("INSERT OR REPLACE INTO "):
             query = re.sub(
-                r"^INSERT\\s+OR\\s+REPLACE\\s+INTO",
+                r"^INSERT\s+OR\s+REPLACE\s+INTO",
                 "INSERT INTO",
                 query,
                 count=1,
                 flags=re.IGNORECASE,
             )
             table_match = re.match(
-                r"INSERT\\s+INTO\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+                r"INSERT\s+INTO\s+([a-zA-Z_][a-zA-Z0-9_]*)",
                 query,
                 flags=re.IGNORECASE,
             )
@@ -67,8 +67,7 @@ class PostgresCompatConnection:
                 raise ValueError(f"Unsupported INSERT OR REPLACE table: {table}")
             query = query.rstrip().rstrip(";") + conflict
 
-        # The existing Flask app uses qmark placeholders and does not place
-        # question marks inside SQL string literals.
+        # Current app SQL has no question marks inside SQL string literals.
         return query.replace("?", "%s")
 
     def execute(self, statement: str, parameters=()):
