@@ -10,6 +10,7 @@ from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, session, flash, g, abort, send_from_directory, send_file
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+from postgres_compat import PostgresCompatConnection
 
 BASE = Path(__file__).resolve().parent
 DATA_DIR = Path(os.environ.get("AREEJ_DATA_DIR", BASE))
@@ -39,8 +40,12 @@ def csrf_guard():
 
 def db():
     if "db" not in g:
-        g.db = sqlite3.connect(DB_PATH)
-        g.db.row_factory = sqlite3.Row
+        database_url = os.environ.get("AREEJ_DATABASE_URL")
+        if database_url:
+            g.db = PostgresCompatConnection.connect(database_url)
+        else:
+            g.db = sqlite3.connect(DB_PATH)
+            g.db.row_factory = sqlite3.Row
     return g.db
 
 @app.teardown_appcontext
@@ -49,6 +54,24 @@ def close_db(error=None):
     if conn: conn.close()
 
 def init_db():
+    database_url = os.environ.get("AREEJ_DATABASE_URL")
+    if database_url:
+        # PostgreSQL tables are created by the reviewed SQL migration.
+        # Never seed demo users or silently create a second schema here.
+        conn = PostgresCompatConnection.connect(database_url)
+        try:
+            schema = conn.execute(
+                "SELECT to_regnamespace('areej_app') AS schema_name"
+            ).fetchone()
+            if not schema or schema["schema_name"] is None:
+                raise RuntimeError(
+                    "Supabase schema areej_app is missing. Run "
+                    "migrations/001_areej_compat_schema.sql first."
+                )
+        finally:
+            conn.close()
+        return
+
     conn = sqlite3.connect(DB_PATH)
     conn.executescript("""
     CREATE TABLE IF NOT EXISTS users (
@@ -187,6 +210,8 @@ def sitemap():
 @app.route("/admin/backup/download")
 @roles("admin")
 def download_backup():
+    if os.environ.get("AREEJ_DATABASE_URL"):
+        abort(503, description="PostgreSQL backup export is not enabled yet.")
     memory_file = io.BytesIO()
     with zipfile.ZipFile(memory_file, "w", zipfile.ZIP_DEFLATED) as archive:
         if DB_PATH.exists():
