@@ -120,8 +120,17 @@ def init_db():
     }.items():
         if column not in message_columns:
             conn.execute(f"ALTER TABLE messages ADD COLUMN {column} {definition}")
-    # Production accounts must be created by an administrator.
     # Never seed public, predictable demo credentials automatically.
+    # A first administrator may be bootstrapped only with an explicit,
+    # private environment variable supplied by the deployment owner.
+    initial_admin_password = os.environ.get("AREEJ_INITIAL_ADMIN_PASSWORD", "")
+    if initial_admin_password and not conn.execute(
+        "SELECT id FROM users WHERE username=?", ("admin",)
+    ).fetchone():
+        conn.execute(
+            "INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+            ("admin", generate_password_hash(initial_admin_password), "admin", "Academy Administrator"),
+        )
     conn.commit(); conn.close()
 
 init_db()
