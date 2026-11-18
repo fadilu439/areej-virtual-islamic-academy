@@ -120,16 +120,7 @@ def init_db():
     }.items():
         if column not in message_columns:
             conn.execute(f"ALTER TABLE messages ADD COLUMN {column} {definition}")
-    demos = [
-      ("admin","Admin123!","admin","Academy Administrator"),
-      ("staff","Staff123!","staff","Staff Member"),
-      ("student","Student123!","student","Student Account"),
-      ("parent","Parent123!","parent","Parent Account")
-    ]
-    for username,password,role,name in demos:
-        if not conn.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone():
-            conn.execute("INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
-                         (username,generate_password_hash(password),role,name))
+    # Demo users are not created automatically. Existing user records are left untouched.
     conn.commit(); conn.close()
 
 init_db()
@@ -170,6 +161,10 @@ def index():
 @app.route("/health")
 def health():
     return {"status": "ok", "service": "Areej Virtual Islamic Academy"}
+
+@app.route("/privacy")
+def privacy_policy():
+    return render_template("privacy.html", year=datetime.datetime.now().year)
 
 @app.route("/robots.txt")
 def robots():
