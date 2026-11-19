@@ -24,7 +24,15 @@ MESSAGE_FOLDER = DATA_DIR / "uploads" / "messages"
 UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
 MESSAGE_FOLDER.mkdir(parents=True, exist_ok=True)
 app = Flask(__name__)
-app.secret_key = os.environ.get("AREEJ_SECRET_KEY") or secrets.token_hex(32)
+
+def configured_secret_key():
+    """Require a stable secret on Render; allow an ephemeral key for local development."""
+    configured = os.environ.get("AREEJ_SECRET_KEY", "").strip()
+    if not configured and os.environ.get("RENDER", "").lower() == "true":
+        raise RuntimeError("AREEJ_SECRET_KEY must be configured on Render before the app can start.")
+    return configured or secrets.token_hex(32)
+
+app.secret_key = configured_secret_key()
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
