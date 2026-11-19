@@ -33,7 +33,7 @@ class PostgresCompatConnection:
 
         if upper.startswith("INSERT OR IGNORE INTO "):
             query = re.sub(
-                r"^INSERT\\s+OR\\s+IGNORE\\s+INTO",
+                r"^INSERT\s+OR\s+IGNORE\s+INTO",
                 "INSERT INTO",
                 query,
                 count=1,
@@ -43,14 +43,14 @@ class PostgresCompatConnection:
 
         elif upper.startswith("INSERT OR REPLACE INTO "):
             query = re.sub(
-                r"^INSERT\\s+OR\\s+REPLACE\\s+INTO",
+                r"^INSERT\s+OR\s+REPLACE\s+INTO",
                 "INSERT INTO",
                 query,
                 count=1,
                 flags=re.IGNORECASE,
             )
             table_match = re.match(
-                r"INSERT\\s+INTO\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+                r"INSERT\s+INTO\s+([a-zA-Z_][a-zA-Z0-9_]*)",
                 query,
                 flags=re.IGNORECASE,
             )
