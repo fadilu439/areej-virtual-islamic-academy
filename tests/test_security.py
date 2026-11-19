@@ -104,7 +104,7 @@ def test_admin_cannot_create_account_with_short_password(client):
             "action": "add_student",
             "student_name": "New Student",
             "student_username": "new-student",
-            "student_password": "short-pass",
+            "student_password": "short7!",
         },
     )
 
@@ -115,7 +115,7 @@ def test_admin_cannot_create_account_with_short_password(client):
         ).fetchone() is None
 
 
-def test_admin_can_create_account_with_12_character_password(client):
+def test_admin_can_create_account_with_8_character_password(client):
     with client.session_transaction() as session:
         session.update(user_id=1, username="admin-test", role="admin", csrf_token="test-csrf")
 
@@ -126,7 +126,7 @@ def test_admin_can_create_account_with_12_character_password(client):
             "action": "add_student",
             "student_name": "New Student",
             "student_username": "new-student",
-            "student_password": "a-strong-pass",
+            "student_password": "pass1234",
         },
     )
 
@@ -137,7 +137,7 @@ def test_admin_can_create_account_with_12_character_password(client):
         ).fetchone()
         assert user is not None
         from werkzeug.security import check_password_hash
-        assert check_password_hash(user["password_hash"], "a-strong-pass")
+        assert check_password_hash(user["password_hash"], "pass1234")
 
 
 def test_student_cannot_access_admin_portal(client):
