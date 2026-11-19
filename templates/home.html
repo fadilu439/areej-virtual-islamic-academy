@@ -166,11 +166,12 @@
 
     <section class="portals-section" id="portals">
       <div class="container">
-        <div class="section-centred"><span class="section-kicker">Online Portals</span><h2>Everyone stays connected</h2><p>Secure spaces for students, parents and teachers.</p></div>
+        <div class="section-centred"><span class="section-kicker">Online Portals</span><h2>Everyone stays connected</h2><p>Dedicated, secure workspaces for administrators, staff, students and parents.</p></div>
         <div class="portal-grid">
           <article id="students"><img src="{{ url_for('static', filename='images/online-learning.jpg') }}" alt="Student portal preview"><span class="portal-number">01</span><h3>Student Portal</h3><p>Classes, assignments, attendance, results, Qur'an progress, materials and certificates.</p><a href="{{ url_for('login') }}">Student login →</a></article>
           <article id="parents"><img src="{{ url_for('static', filename='images/children-learning.jpg') }}" alt="Parent portal preview"><span class="portal-number">02</span><h3>Parent Portal</h3><p>Academic progress, attendance, results, feedback, assignments and payment information.</p><a href="{{ url_for('login') }}">Parent login →</a></article>
-          <article id="teachers"><img src="{{ url_for('static', filename='images/arabic-learning.jpg') }}" alt="Teacher portal preview"><span class="portal-number">03</span><h3>Teacher Portal</h3><p>Manage classes, attendance, materials, assessments and learner progress.</p><a href="{{ url_for('login') }}">Teacher login →</a></article>
+          <article id="staff"><img src="{{ url_for('static', filename='images/arabic-learning.jpg') }}" alt="Staff portal preview"><span class="portal-number">03</span><h3>Staff Portal</h3><p>Manage classes, attendance, learning materials, assessments and learner progress.</p><a href="{{ url_for('login') }}">Staff login →</a></article>
+          <article id="administrators"><img src="{{ url_for('static', filename='images/islamic-library.jpg') }}" alt="Academy administration workspace"><span class="portal-number">04</span><h3>Admin Portal</h3><p>Oversee admissions, courses, student and staff accounts, classes and academy communication.</p><a href="{{ url_for('login') }}">Admin login →</a></article>
         </div>
       </div>
     </section>
@@ -194,7 +195,7 @@
       <div><div class="footer-brand"><span>A</span><strong>AREEJ</strong></div><p>Nurturing faith, knowledge and character through accessible online Islamic education.</p></div>
       <div><strong>About Areej</strong><a href="#about">Academy Profile</a><a href="#vision">Vision & Mission</a><a href="#contact">Contact</a></div>
       <div><strong>Learning</strong><a href="#programmes">Curriculum</a><a href="#learning-path">Learning Path</a><a href="#admissions">Admissions</a></div>
-      <div><strong>Portals</strong><a href="{{ url_for('login') }}">Student</a><a href="{{ url_for('login') }}">Parent</a><a href="{{ url_for('login') }}">Teacher</a></div>
+      <div><strong>Portals</strong><a href="{{ url_for('login') }}">Student</a><a href="{{ url_for('login') }}">Parent</a><a href="{{ url_for('login') }}">Staff</a><a href="{{ url_for('login') }}">Admin</a></div>
     </div>
     <div class="container copyright">© {{ year }} AREEJ Virtual Islamic Academy <a href="{{ url_for('privacy_policy') }}">Privacy Policy</a></div>
   </footer>
