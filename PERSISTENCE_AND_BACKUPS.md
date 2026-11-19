@@ -30,11 +30,11 @@ Do not commit any values. Do not place the database URL or secret key in GitHub 
 
 ## Encrypted database backups
 
-The workflow `.github/workflows/areej-daily-backup.yml` runs daily and can also be started manually. It requires these GitHub Actions secrets:
+The workflow `.github/workflows/areej-daily-backup.yml` runs daily and can also be started manually. It backs up the configured four private buckets: `academy-learning`, `areej-private-files`, `chat-attachments`, and `payment-proofs`. It requires these GitHub Actions secrets:
 
 - `AREEJ_DATABASE_URL`: private PostgreSQL connection string.
 - `AREEJ_BACKUP_AGE_RECIPIENT`: age public recipient used to encrypt backups.
-- `SUPABASE_URL` and `SUPABASE_SECRET_KEY`: server-only credentials used to list and download objects from the private Storage bucket.
+- `SUPABASE_URL` and `SUPABASE_SECRET_KEY`: server-only credentials used to list and download objects from the private Storage buckets.
 
 It creates a custom-format dump of `public` and `areej_app`, then separately archives every object in the configured private Supabase Storage bucket. Both backups are encrypted with age; plaintext temporary files are removed. Only encrypted files are uploaded as GitHub Actions artifacts with 30-day retention.
 
