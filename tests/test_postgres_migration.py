@@ -95,6 +95,9 @@ def test_login_attempts_migration_creates_private_table_and_index():
             assert schema_allowed is False, f"{role} unexpectedly has schema USAGE"
             assert table_allowed is False, f"{role} unexpectedly has SELECT access"
 
+        # Make the disposable schema visible to the adapter's separate connection.
+        conn.commit()
+
         # Exercise the real PostgreSQL adapter against the migrated table,
         # including the SQLite-style placeholders used by the Flask app.
         compat = PostgresCompatConnection.connect(DATABASE_URL)
