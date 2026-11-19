@@ -9,10 +9,10 @@
 
 <h2 class="section-title">Work Overview</h2>
 <section class="metrics">
-  <article><small>My Classes</small><strong>3</strong><p>Active sessions</p></article>
-  <article><small>Students</small><strong>28</strong><p>Enrolled learners</p></article>
-  <article><small>Attendance</small><strong>92%</strong><p>Average this week</p></article>
-  <article><small>Assignments</small><strong>7</strong><p>Due this month</p></article>
+  <article><small>My Classes</small><strong>{{ class_count }}</strong><p>Classes assigned to you</p></article>
+  <article><small>Students</small><strong>{{ student_count }}</strong><p>Learners in your classes</p></article>
+  <article><small>Attendance</small><strong>{{ attendance_rate }}%</strong><p>Recorded attendance marked present</p></article>
+  <article><small>Assignments</small><strong>{{ assignment_count }}</strong><p>Assignments in your classes</p></article>
 </section>
 
 <div class="columns">
@@ -31,11 +31,15 @@
   <section class="panel" id="students">
     <small>LEARNERS</small>
     <h2>Student Overview</h2>
+    {% if students %}
     <div class="mini-list">
-      <div><strong>Aisha Yusuf</strong><span>Memorisation progress strong</span></div>
-      <div><strong>Hassan Ali</strong><span>Needs support in Tajweed</span></div>
-      <div><strong>Noor Rahman</strong><span>Excellent Arabic writing</span></div>
+      {% for student in students %}
+      <div><strong>{{ student.display_name }}</strong><span>Enrolled in one of your classes</span></div>
+      {% endfor %}
     </div>
+    {% else %}
+    <div class="empty compact"><h3>No enrolled students yet</h3><p>Students will appear here after the administrator enrols them in your classes.</p></div>
+    {% endif %}
   </section>
 </div>
 

@@ -70,7 +70,7 @@
       <input type="hidden" name="action" value="add_student">
       <div><label for="student_name">Student name</label><input id="student_name" name="student_name" maxlength="100" placeholder="Full name" required></div>
       <div><label for="student_username">Username</label><input id="student_username" name="student_username" maxlength="60" autocomplete="off" placeholder="e.g. student01" required></div>
-      <div><label for="student_password">Temporary password</label><input id="student_password" name="student_password" type="password" minlength="6" autocomplete="new-password" placeholder="At least 6 characters" required></div>
+      <div><label for="student_password">Temporary password</label><input id="student_password" name="student_password" type="password" minlength="8" autocomplete="new-password" placeholder="At least 8 characters" required></div>
       <button class="btn primary" type="submit">Create Student Account</button>
     </form>
 
@@ -95,7 +95,7 @@
       <input type="hidden" name="action" value="add_staff">
       <div><label for="staff_name">Staff name</label><input id="staff_name" name="staff_name" maxlength="100" placeholder="Full name" required></div>
       <div><label for="staff_username">Username</label><input id="staff_username" name="staff_username" maxlength="60" autocomplete="off" placeholder="e.g. teacher01" required></div>
-      <div><label for="staff_password">Temporary password</label><input id="staff_password" name="staff_password" type="password" minlength="6" autocomplete="new-password" placeholder="At least 6 characters" required></div>
+      <div><label for="staff_password">Temporary password</label><input id="staff_password" name="staff_password" type="password" minlength="8" autocomplete="new-password" placeholder="At least 8 characters" required></div>
       <button class="btn primary" type="submit">Create Staff Account</button>
     </form>
     <div class="mini-list">
@@ -117,7 +117,7 @@
       <input type="hidden" name="action" value="add_parent">
       <div><label for="parent_name">Parent name</label><input id="parent_name" name="parent_name" maxlength="100" placeholder="Full name" required></div>
       <div><label for="parent_username">Username</label><input id="parent_username" name="parent_username" maxlength="60" autocomplete="off" placeholder="e.g. parent01" required></div>
-      <div><label for="parent_password">Temporary password</label><input id="parent_password" name="parent_password" type="password" minlength="6" autocomplete="new-password" placeholder="At least 6 characters" required></div>
+      <div><label for="parent_password">Temporary password</label><input id="parent_password" name="parent_password" type="password" minlength="8" autocomplete="new-password" placeholder="At least 8 characters" required></div>
       <button class="btn primary" type="submit">Create Parent Account</button>
     </form>
     <div class="mini-list">
@@ -134,7 +134,7 @@
       <div><strong>Payment proof storage</strong><span>Enabled</span></div>
       <div><strong>File type validation</strong><span>JPG, PNG, PDF</span></div>
       <div><strong>Portal access</strong><span>Student / Parent / Staff / Admin</span></div>
-      <div><strong>Weekly database backup</strong><span><a href="{{ url_for('download_backup') }}">Download backup archive</a></span></div>
+      <div><strong>Database backup</strong><span><a href="{{ url_for('download_backup') }}">Download backup archive</a></span></div>
     </div>
   </section>
 </div>
