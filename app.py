@@ -37,6 +37,46 @@ def csrf_guard():
         if not submitted or not hmac.compare_digest(session["csrf_token"], submitted):
             abort(403)
 
+def valid_upload_signature(upload, extension):
+    """Check basic file signatures instead of trusting the browser MIME type."""
+    header = upload.stream.read(16)
+    upload.stream.seek(0)
+    signatures = {
+        "jpg": header.startswith(b"\\xff\\xd8\\xff"),
+        "jpeg": header.startswith(b"\\xff\\xd8\\xff"),
+        "png": header.startswith(b"\\x89PNG\\r\\n\\x1a\\n"),
+        "pdf": header.startswith(b"%PDF-"),
+        "webp": len(header) >= 12 and header[:4] == b"RIFF" and header[8:12] == b"WEBP",
+        "ogg": header.startswith(b"OggS"),
+        "mp3": header.startswith(b"ID3") or (len(header) >= 2 and header[0] == 0xFF and (header[1] & 0xE0) == 0xE0),
+        "wav": len(header) >= 12 and header[:4] == b"RIFF" and header[8:12] == b"WAVE",
+        "webm": header.startswith(b"\\x1a\\x45\\xdf\\xa3"),
+        "doc": header.startswith(b"\\xd0\\xcf\\x11\\xe0\\xa1\\xb1\\x1a\\xe1"),
+        "docx": header.startswith(b"PK\\x03\\x04"),
+    }
+    if extension == "txt":
+        try:
+            upload.stream.read().decode("utf-8")
+            return True
+        except UnicodeDecodeError:
+            return False
+        finally:
+            upload.stream.seek(0)
+    return signatures.get(extension, False)
+
+def save_validated_upload(upload, folder, allowed_extensions):
+    if not upload or not upload.filename:
+        return None
+    safe_name = secure_filename(upload.filename)
+    if not safe_name or "." not in safe_name:
+        return None
+    extension = safe_name.rsplit(".", 1)[-1].lower()
+    if extension not in allowed_extensions or not valid_upload_signature(upload, extension):
+        return None
+    stored_name = f"{secrets.token_hex(12)}_{safe_name}"
+    upload.save(folder / stored_name)
+    return stored_name
+
 def db():
     if "db" not in g:
         g.db = sqlite3.connect(DB_PATH)
@@ -260,16 +300,13 @@ def admission_enquiry():
         flash("Student age must be between 3 and 100.", "error")
         return redirect(url_for("index", _anchor="admissions"))
 
-    proof_name = ""
     proof = request.files.get("payment_proof")
+    proof_name = ""
     if proof and proof.filename:
-        allowed_extensions = {"jpg", "jpeg", "png", "pdf"}
-        extension = secure_filename(proof.filename).rsplit(".", 1)[-1].lower()
-        if extension not in allowed_extensions:
-            flash("Payment proof must be a JPG, PNG or PDF file.", "error")
+        proof_name = save_validated_upload(proof, UPLOAD_FOLDER, {"jpg", "jpeg", "png", "pdf"})
+        if not proof_name:
+            flash("Payment proof must be a valid JPG, PNG or PDF file.", "error")
             return redirect(url_for("index", _anchor="admissions"))
-        proof_name = secure_filename(f"{secrets.token_hex(12)}_{proof.filename}")
-        proof.save(UPLOAD_FOLDER / proof_name)
 
     db().execute("""INSERT INTO enrollments
         (student_name, age, programme, guardian_name, contact, location, payment_proof)
@@ -323,7 +360,7 @@ def portal_contacts(conn, role):
         (session["user_id"],),
     ).fetchall()
 
-@app.route("/messages/open")
+@app.route("/messages/open", methods=["POST"])
 @roles("admin","staff","student","parent")
 def open_messages():
     db().execute("UPDATE messages SET is_read=1 WHERE recipient_id=? AND is_read=0", (session["user_id"],))
@@ -339,18 +376,14 @@ def send_message():
     recipient = db().execute("SELECT id FROM users WHERE id=?", (recipient_id,)).fetchone()
     upload = request.files.get("attachment")
     attachment_name = attachment_path = attachment_type = ""
-    allowed_types = ("image/jpeg", "image/png", "image/webp", "application/pdf", "text/plain",
-                     "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                     "audio/webm", "audio/ogg", "audio/mpeg")
     if upload and upload.filename:
-        if upload.content_type not in allowed_types:
-            flash("That attachment type is not allowed.", "error")
-            return redirect(request.referrer or url_for("portal") )
-        attachment_name = secure_filename(upload.filename)
-        if not attachment_name: attachment_name = "attachment"
-        unique_name = f"{secrets.token_hex(12)}_{attachment_name}"
-        upload.save(MESSAGE_FOLDER / unique_name)
-        attachment_path, attachment_type = unique_name, upload.content_type
+        allowed_extensions = {"jpg", "jpeg", "png", "webp", "pdf", "txt", "doc", "docx", "webm", "ogg", "mp3", "wav"}
+        attachment_path = save_validated_upload(upload, MESSAGE_FOLDER, allowed_extensions) or ""
+        if not attachment_path:
+            flash("That attachment is not a supported file or its contents do not match its extension.", "error")
+            return redirect(request.referrer or url_for("portal"))
+        attachment_name = secure_filename(upload.filename) or "attachment"
+        attachment_type = upload.content_type or "application/octet-stream"
     if not recipient or (not body and not attachment_path):
         flash("Choose a recipient and add a message or attachment.", "error")
     else:
@@ -472,45 +505,106 @@ def delete_course(course_id):
 @app.route("/staff/work", methods=["POST"])
 @roles("staff")
 def staff_work():
-    conn = db(); action = request.form.get("action")
+    conn = db()
+    action = request.form.get("action")
+    teacher_id = session["user_id"]
+
     if action == "create_class":
-        conn.execute("INSERT INTO classes(course_id,teacher_id,name,description,schedule,meeting_url,channel) VALUES(?,?,?,?,?,?,?)",
-                     (request.form.get("course_id") or None, session["user_id"], request.form.get("name","").strip(),
-                      request.form.get("description","").strip(), request.form.get("schedule","").strip(),
-                      request.form.get("meeting_url","").strip(), request.form.get("channel","General")))
-        conn.commit(); flash("Class and channel created.", "success")
+        name = request.form.get("name", "").strip()
+        course_id = request.form.get("course_id") or None
+        if not name or (course_id and not conn.execute("SELECT id FROM courses WHERE id=?", (course_id,)).fetchone()):
+            flash("Choose a valid course and enter a class name.", "error")
+        else:
+            conn.execute("INSERT INTO classes(course_id,teacher_id,name,description,schedule,meeting_url,channel) VALUES(?,?,?,?,?,?,?)",
+                         (course_id, teacher_id, name, request.form.get("description","").strip(),
+                          request.form.get("schedule","").strip(), request.form.get("meeting_url","").strip(),
+                          request.form.get("channel","General")))
+            conn.commit()
+            flash("Class and channel created.", "success")
+
     elif action == "create_assignment":
+        class_id = request.form.get("class_id")
+        title = request.form.get("title", "").strip()
+        owned_class = conn.execute("SELECT id FROM classes WHERE id=? AND teacher_id=?", (class_id, teacher_id)).fetchone()
+        if not owned_class or not title:
+            abort(403)
         conn.execute("INSERT INTO assignments(class_id,title,instructions,due_date) VALUES(?,?,?,?)",
-                     (request.form.get("class_id"), request.form.get("title","").strip(),
-                      request.form.get("instructions","").strip(), request.form.get("due_date","")))
-        conn.commit(); flash("Assignment published.", "success")
+                     (class_id, title, request.form.get("instructions","").strip(), request.form.get("due_date","")))
+        conn.commit()
+        flash("Assignment published.", "success")
+
     elif action == "record_attendance":
         class_id, student_id = request.form.get("class_id"), request.form.get("student_id")
-        if class_id and student_id:
-            conn.execute("INSERT OR REPLACE INTO attendance(class_id,student_id,lesson_date,status,recorded_by) VALUES(?,?,?,?,?)",
-                         (class_id, student_id, request.form.get("lesson_date") or datetime.date.today().isoformat(),
-                          request.form.get("status","present"), session["user_id"]))
-            conn.commit(); flash("Attendance recorded.", "success")
+        owned_enrolment = conn.execute(
+            """SELECT ea.id FROM enrollments_academic ea
+               JOIN classes cl ON cl.id=ea.class_id
+               WHERE ea.class_id=? AND ea.student_id=? AND cl.teacher_id=?""",
+            (class_id, student_id, teacher_id)
+        ).fetchone()
+        status = request.form.get("status", "present")
+        if not owned_enrolment or status not in {"present", "absent", "late"}:
+            abort(403)
+        conn.execute("INSERT OR REPLACE INTO attendance(class_id,student_id,lesson_date,status,recorded_by) VALUES(?,?,?,?,?)",
+                     (class_id, student_id, request.form.get("lesson_date") or datetime.date.today().isoformat(),
+                      status, teacher_id))
+        conn.commit()
+        flash("Attendance recorded.", "success")
+
     elif action == "record_result":
+        class_id, student_id = request.form.get("class_id"), request.form.get("student_id")
+        owned_enrolment = conn.execute(
+            """SELECT ea.id FROM enrollments_academic ea
+               JOIN classes cl ON cl.id=ea.class_id
+               WHERE ea.class_id=? AND ea.student_id=? AND cl.teacher_id=?""",
+            (class_id, student_id, teacher_id)
+        ).fetchone()
+        try:
+            score = float(request.form.get("score", "0"))
+            maximum_score = float(request.form.get("maximum_score", "100"))
+        except ValueError:
+            flash("Enter valid numeric assessment scores.", "error")
+            return redirect(url_for("staff_dashboard", _anchor="classes"))
+        assessment = request.form.get("assessment", "").strip()
+        if not owned_enrolment or not assessment or maximum_score <= 0 or score < 0 or score > maximum_score:
+            abort(403)
         conn.execute("INSERT INTO results(class_id,student_id,assessment,score,maximum_score,feedback) VALUES(?,?,?,?,?,?)",
-                     (request.form.get("class_id"), request.form.get("student_id"), request.form.get("assessment","").strip(),
-                      request.form.get("score",0), request.form.get("maximum_score",100), request.form.get("feedback","").strip()))
-        conn.commit(); flash("Result saved.", "success")
+                     (class_id, student_id, assessment, score, maximum_score, request.form.get("feedback","").strip()))
+        conn.commit()
+        flash("Result saved.", "success")
+
     return redirect(url_for("staff_dashboard", _anchor="classes"))
 
 @app.route("/student/submit", methods=["POST"])
 @roles("student")
 def submit_assignment():
     assignment_id = request.form.get("assignment_id")
+    student_id = session["user_id"]
     content = request.form.get("content", "").strip()
+    assignment = db().execute(
+        """SELECT a.id FROM assignments a
+           JOIN enrollments_academic ea ON ea.class_id=a.class_id
+           WHERE a.id=? AND ea.student_id=?""",
+        (assignment_id, student_id)
+    ).fetchone()
+    if not assignment:
+        abort(403)
     upload = request.files.get("submission_file")
     file_name = file_path = ""
     if upload and upload.filename:
-        file_name = secure_filename(upload.filename)
-        file_path = f"{secrets.token_hex(12)}_{file_name}"; upload.save(MESSAGE_FOLDER / file_path)
+        file_path = save_validated_upload(
+            upload, MESSAGE_FOLDER, {"jpg", "jpeg", "png", "webp", "pdf", "txt", "doc", "docx"}
+        ) or ""
+        if not file_path:
+            flash("Please upload a supported document or image file.", "error")
+            return redirect(url_for("student_dashboard", _anchor="assignments"))
+        file_name = secure_filename(upload.filename) or "submission"
+    if not content and not file_path:
+        flash("Add a response or attach a file before submitting.", "error")
+        return redirect(url_for("student_dashboard", _anchor="assignments"))
     db().execute("INSERT OR REPLACE INTO assignment_submissions(assignment_id,student_id,content,file_name,file_path) VALUES(?,?,?,?,?)",
-                 (assignment_id, session["user_id"], content, file_name, file_path))
-    db().commit(); flash("Assignment submitted successfully.", "success")
+                 (assignment_id, student_id, content, file_name, file_path))
+    db().commit()
+    flash("Assignment submitted successfully.", "success")
     return redirect(url_for("student_dashboard", _anchor="assignments"))
 
 @app.route("/admin/link", methods=["POST"])
@@ -530,7 +624,7 @@ def admin_link_student():
         conn.commit(); flash("Student enrolled in class.", "success")
     return redirect(url_for("admin_dashboard", _anchor="admissions"))
 
-@app.route("/logout")
+@app.route("/logout", methods=["POST"])
 def logout():
     session.clear(); return redirect(url_for("login"))
 
