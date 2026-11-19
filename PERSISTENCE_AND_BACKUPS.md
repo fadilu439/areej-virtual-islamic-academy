@@ -33,9 +33,10 @@ Do not commit any values. Do not place the database URL or secret key in GitHub 
 The workflow `.github/workflows/areej-daily-backup.yml` runs daily and can also be started manually. It requires these GitHub Actions secrets:
 
 - `AREEJ_DATABASE_URL`: private PostgreSQL connection string.
-- `AREEJ_BACKUP_AGE_RECIPIENT`: age public recipient used to encrypt the dump.
+- `AREEJ_BACKUP_AGE_RECIPIENT`: age public recipient used to encrypt backups.
+- `SUPABASE_URL` and `SUPABASE_SECRET_KEY`: server-only credentials used to list and download objects from the private Storage bucket.
 
-It creates a custom-format dump of `public` and `areej_app`, encrypts it with age, removes the plaintext temporary dump, and uploads only the encrypted file as a private repository artifact with 30-day retention.
+It creates a custom-format dump of `public` and `areej_app`, then separately archives every object in the configured private Supabase Storage bucket. Both backups are encrypted with age; plaintext temporary files are removed. Only encrypted files are uploaded as GitHub Actions artifacts with 30-day retention.
 
 For longer-term independent retention, configure a private Cloudflare R2 bucket and these additional GitHub Actions secrets: `R2_ACCOUNT_ID`, `R2_ACCESS_KEY_ID`, `R2_SECRET_ACCESS_KEY`, and `R2_BUCKET`. The workflow uploads the encrypted backup to `areej/database/` when all four are present. Configure R2 lifecycle/versioning and access controls in the Cloudflare dashboard; do not assume the bucket is permanent until a restore test succeeds.
 
@@ -43,7 +44,7 @@ Keep the age identity/private key offline and separate from GitHub. Never store 
 
 ## Important limitations
 
-- The encrypted database backup covers PostgreSQL schemas, not Supabase Storage objects. A separate encrypted Storage-object backup and restore test is still required before claiming full disaster recovery.
+- The workflow now includes a separate encrypted backup of objects in the configured private Storage bucket. A full restore test of both the database and every Storage object is still required before claiming disaster recovery is proven.
 - GitHub artifacts expire after 30 days. R2 retention is optional and must be configured before this becomes long-term off-site backup.
 - The migration scripts are for a fresh/empty staging schema. They deliberately refuse to overwrite populated destination tables. The existing Areej Supabase compatibility schema already contains records, so do not run the import script against it.
 - The production Render service must not be switched to PostgreSQL or Supabase Storage until a staging service has passed all four portal, messaging, upload, login-throttle, backup and restore tests.
