@@ -241,8 +241,6 @@ def init_db():
     conn.commit()
     conn.close()
 
-init_db()
-
 @app.context_processor
 def context_user():
     unread_count = 0
