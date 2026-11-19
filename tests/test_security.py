@@ -170,30 +170,38 @@ def test_upload_signature_accepts_png_header():
 def test_staff_sees_only_students_enrolled_in_their_classes(client):
     with app_module.app.app_context():
         conn = app_module.db()
-        conn.execute(
+        teacher_id = conn.execute(
             "INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
             ("teacher-test", generate_password_hash("teacher password 123"), "staff", "Test Teacher"),
-        )
-        conn.execute(
+        ).lastrowid
+        private_student_id = conn.execute(
             "INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
             ("private-student", generate_password_hash("private password 123"), "student", "Private Student"),
+        ).lastrowid
+        student_id = conn.execute(
+            "SELECT id FROM users WHERE username=?", ("student-test",)
+        ).fetchone()["id"]
+        admin_id = conn.execute(
+            "SELECT id FROM users WHERE username=?", ("admin-test",)
+        ).fetchone()["id"]
+        teacher_class_id = conn.execute(
+            "INSERT INTO classes(teacher_id,name) VALUES(?,?)", (teacher_id, "Teacher's Class")
+        ).lastrowid
+        admin_class_id = conn.execute(
+            "INSERT INTO classes(teacher_id,name) VALUES(?,?)", (admin_id, "Admin's Class")
+        ).lastrowid
+        conn.execute(
+            "INSERT INTO enrollments_academic(student_id,class_id) VALUES(?,?)",
+            (student_id, teacher_class_id),
         )
         conn.execute(
-            "INSERT INTO classes(teacher_id,name) VALUES(?,?)", (3, "Teacher's Class")
-        )
-        conn.execute(
-            "INSERT INTO classes(teacher_id,name) VALUES(?,?)", (1, "Admin's Class")
-        )
-        conn.execute(
-            "INSERT INTO enrollments_academic(student_id,class_id) VALUES(?,?)", (2, 1)
-        )
-        conn.execute(
-            "INSERT INTO enrollments_academic(student_id,class_id) VALUES(?,?)", (4, 2)
+            "INSERT INTO enrollments_academic(student_id,class_id) VALUES(?,?)",
+            (private_student_id, admin_class_id),
         )
         conn.commit()
 
     with client.session_transaction() as session:
-        session.update(user_id=3, username="teacher-test", role="staff", csrf_token="teacher-csrf")
+        session.update(user_id=teacher_id, username="teacher-test", role="staff", csrf_token="teacher-csrf")
 
     response = client.get("/staff")
     assert response.status_code == 200
