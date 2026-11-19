@@ -20,7 +20,7 @@ jobs:
       R2_BUCKET: ${{ secrets.R2_BUCKET }}
       SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
       SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
-      AREEJ_SUPABASE_BUCKET: areej-private-files
+      AREEJ_SUPABASE_BUCKETS: academy-learning,areej-private-files,chat-attachments,payment-proofs
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -44,15 +44,15 @@ jobs:
       - name: Create encrypted private Storage backup
         run: python scripts/backup_supabase_storage.py
 
-      - name: Retain encrypted backup in private repository artifacts
+      - name: Retain encrypted backup artifact (30-day expiry)
         uses: actions/upload-artifact@v4
         with:
-          name: areej-encrypted-postgres-backup-${{ github.run_id }}
+          name: areej-encrypted-backups-${{ github.run_id }}
           path: backups/*.age
           if-no-files-found: error
           retention-days: 30
 
-      - name: Copy encrypted backup to private Cloudflare R2 bucket when configured
+      - name: Copy encrypted backups to Cloudflare R2 when configured
         if: ${{ env.R2_ACCOUNT_ID != '' && env.R2_ACCESS_KEY_ID != '' && env.R2_SECRET_ACCESS_KEY != '' && env.R2_BUCKET != '' }}
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
