@@ -91,7 +91,8 @@ def main() -> int:
             stdout=subprocess.DEVNULL,
         )
 
-    digest = hashlib.sha256(open(encrypted_path, "rb").read()).hexdigest()
+    with open(encrypted_path, "rb") as encrypted_file:
+        digest = hashlib.sha256(encrypted_file.read()).hexdigest()
     print(f"Encrypted Storage backup created for {count} object(s): {os.path.basename(encrypted_path)}")
     print(f"SHA-256: {digest}")
     print("No plaintext Storage archive was retained.")
