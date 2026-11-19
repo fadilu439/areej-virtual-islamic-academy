@@ -18,6 +18,9 @@ jobs:
       R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
       R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
       R2_BUCKET: ${{ secrets.R2_BUCKET }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY }}
+      AREEJ_SUPABASE_BUCKET: areej-private-files
     steps:
       - name: Check out repository
         uses: actions/checkout@v4
@@ -25,8 +28,8 @@ jobs:
       - name: Check backup configuration
         shell: bash
         run: |
-          if [[ -z "$AREEJ_DATABASE_URL" || -z "$AREEJ_BACKUP_AGE_RECIPIENT" ]]; then
-            echo "::error::Add AREEJ_DATABASE_URL and AREEJ_BACKUP_AGE_RECIPIENT as GitHub Actions secrets before backups can run."
+          if [[ -z "$AREEJ_DATABASE_URL" || -z "$AREEJ_BACKUP_AGE_RECIPIENT" || -z "$SUPABASE_URL" || -z "$SUPABASE_SECRET_KEY" ]]; then
+            echo "::error::Add AREEJ_DATABASE_URL, AREEJ_BACKUP_AGE_RECIPIENT, SUPABASE_URL and SUPABASE_SECRET_KEY as GitHub Actions secrets before backups can run."
             exit 1
           fi
 
@@ -37,6 +40,9 @@ jobs:
 
       - name: Create encrypted database backup
         run: python scripts/backup_postgres.py
+
+      - name: Create encrypted private Storage backup
+        run: python scripts/backup_supabase_storage.py
 
       - name: Retain encrypted backup in private repository artifacts
         uses: actions/upload-artifact@v4
