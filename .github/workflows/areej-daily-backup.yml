@@ -1,0 +1,55 @@
+name: Areej encrypted database backup
+
+on:
+  push:
+    branches:
+      - backup/initial-encrypted-backup
+  workflow_dispatch:
+  schedule:
+    - cron: "20 2 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  encrypted-backup:
+    runs-on: ubuntu-latest
+    env:
+      AREEJ_DATABASE_URL: ${{ secrets.AREEJ_DATABASE_URL }}
+      AREEJ_BACKUP_AGE_RECIPIENT: ${{ secrets.AREEJ_BACKUP_AGE_RECIPIENT }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SECRET_KEY: ${{ secrets.SUPABASE_SECRET_KEY || secrets.AREEJ_SUPABASE_SECRET_KEY }}
+      AREEJ_SUPABASE_BUCKETS: academy-learning,areej-private-files,chat-attachments,payment-proofs
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Check backup configuration
+        shell: bash
+        run: |
+          if [[ -z "$AREEJ_DATABASE_URL" || -z "$AREEJ_BACKUP_AGE_RECIPIENT" || -z "$SUPABASE_URL" || -z "$SUPABASE_SECRET_KEY" ]]; then
+            echo "::error::Missing one or more required GitHub Actions secrets for encrypted Areej backup."
+            exit 1
+          fi
+
+      - name: Install PostgreSQL and age tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client age
+
+      - name: Install Python backup dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Create encrypted database backup
+        run: python scripts/backup_postgres.py
+
+      - name: Create encrypted private Storage backup
+        run: python scripts/backup_supabase_storage.py
+
+      - name: Retain encrypted backup artifact (30-day expiry)
+        uses: actions/upload-artifact@v4
+        with:
+          name: areej-encrypted-backups-${{ github.run_id }}
+          path: backups/*.age
+          if-no-files-found: error
+          retention-days: 30
