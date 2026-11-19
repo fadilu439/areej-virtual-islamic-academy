@@ -151,6 +151,7 @@
           <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
           <div class="form-grid">
             <div><label for="student_name">Student name</label><input id="student_name" name="student_name" required></div>
+            <div><label for="age">Student age</label><input id="age" name="age" type="number" min="3" max="100" step="1" inputmode="numeric" placeholder="Enter age (3–100)" required></div>
             <div><label for="programme">Programme</label><select id="programme" name="programme" required><option value="">Select programme</option><option>Qur'an Reading</option><option>Tajweed</option><option>Hifz</option><option>Arabic Language</option><option>Islamic Studies</option><option>Children's Programme</option><option>Youth Programme</option><option>Adult Education</option></select></div>
             <div><label for="guardian_name">Guardian / Applicant</label><input id="guardian_name" name="guardian_name" required></div>
             <div><label for="phone">Phone / WhatsApp</label><input id="phone" name="phone" required></div>
