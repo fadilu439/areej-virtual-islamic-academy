@@ -542,7 +542,7 @@ def staff_work():
             (class_id, student_id, teacher_id)
         ).fetchone()
         status = request.form.get("status", "present")
-        if not owned_enrolment or status not in {"present", "absent", "late"}:
+        if not owned_enrolment or status not in {"present", "absent", "late", "excused"}:
             abort(403)
         conn.execute("INSERT OR REPLACE INTO attendance(class_id,student_id,lesson_date,status,recorded_by) VALUES(?,?,?,?,?)",
                      (class_id, student_id, request.form.get("lesson_date") or datetime.date.today().isoformat(),
