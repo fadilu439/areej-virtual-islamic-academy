@@ -775,6 +775,10 @@ def too_many_requests(error):
         message="Too many requests. Please wait a few minutes and try again."
     ), 429
 
+# Initialize the selected database when imported by a WSGI server such as Gunicorn.
+# SQLite setup is idempotent; PostgreSQL mode only validates the pre-provisioned
+# areej_app schema and the required login-throttling migration.
+init_db()
+
 if __name__ == "__main__":
-    init_db()
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "5000")), debug=False)
