@@ -33,13 +33,13 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="areej-db-backup-") as temporary:
         plain_path = Path(temporary) / "database.dump"
         environment = os.environ.copy()
-        environment["PGDATABASE"] = database_url
         environment.setdefault("PGSSLMODE", "require")
 
         subprocess.run(
             [
-                "pg_dump", "--format=custom", "--no-owner", "--no-acl",
-                "--schema=public", "--schema=areej_app", "--file", str(plain_path),
+                "pg_dump", "--dbname", database_url, "--format=custom",
+                "--no-owner", "--no-acl", "--schema=public", "--schema=areej_app",
+                "--file", str(plain_path),
             ],
             env=environment,
             check=True,
