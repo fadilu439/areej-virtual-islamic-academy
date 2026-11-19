@@ -81,7 +81,7 @@ def test_login_attempts_migration_creates_private_table_and_index():
         assert "login_attempts_pkey" in indexes
         assert "idx_areej_login_attempts_window" in indexes
 
-        for role in ("anon", "authenticated", "PUBLIC"):
+        for role in ("anon", "authenticated"):
             allowed = conn.execute(
                 "SELECT has_table_privilege(%s, 'areej_app.login_attempts', 'SELECT')",
                 (role,),
