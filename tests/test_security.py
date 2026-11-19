@@ -200,3 +200,18 @@ def test_staff_sees_only_students_enrolled_in_their_classes(client):
     assert b"Test Student" in response.data
     assert b"Private Student" not in response.data
     assert b"Teacher's Class" in response.data
+
+
+def test_health_endpoint_checks_database(client):
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.get_json()["status"] == "ok"
+
+
+def test_health_endpoint_reports_database_failure(client):
+    from unittest.mock import patch
+
+    with patch.object(app_module, "db", side_effect=RuntimeError("database unavailable")):
+        response = client.get("/health")
+    assert response.status_code == 503
+    assert response.get_json()["status"] == "unhealthy"
