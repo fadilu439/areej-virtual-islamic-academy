@@ -31,12 +31,13 @@ python -m pytest -q
 
 The GitHub Actions workflow runs syntax checks and security/regression tests on the integration branch and pull requests.
 
-## Production architecture
+## Target production architecture (not yet activated)
 
 - Render hosts the Flask web application.
 - Supabase PostgreSQL stores persistent application records in the isolated `areej_app` schema.
 - Supabase Storage stores private uploads in the private `areej-private-files` bucket.
-- SQLite remains available for local development only.
+- SQLite remains available for local development.
+- The active production Render service has **not yet been switched** to PostgreSQL or Supabase Storage. Keep the current deployment unchanged until a separate staging deployment passes all checks.
 - The browser never receives database credentials or the Supabase server-only Storage secret.
 
 See [PERSISTENCE_AND_BACKUPS.md](PERSISTENCE_AND_BACKUPS.md) for staging configuration, migrations, encrypted backup setup and restore requirements.
@@ -45,7 +46,7 @@ See [PERSISTENCE_AND_BACKUPS.md](PERSISTENCE_AND_BACKUPS.md) for staging configu
 
 - Set a stable, high-entropy `AREEJ_SECRET_KEY` in the Render environment.
 - Set `AREEJ_COOKIE_SECURE=1` for HTTPS production.
-- Use a private `AREEJ_DATABASE_URL` only after staging tests pass.
+- Use a private `AREEJ_DATABASE_URL` only after staging tests pass. Prefer the Supabase Session Pooler connection string if the Render network cannot reach the direct database endpoint.
 - For private file storage, set `AREEJ_STORAGE_BACKEND=supabase`, `SUPABASE_URL`, `SUPABASE_SECRET_KEY`, and `AREEJ_SUPABASE_BUCKET=areej-private-files`.
 - Never use the Supabase publishable/anon key as the server database password or server Storage secret.
 - Do not expose the `areej_app` schema to `anon` or `authenticated` client roles. Do not enable RLS without tested policies for the server's access model.
