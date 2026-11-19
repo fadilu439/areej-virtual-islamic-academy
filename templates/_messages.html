@@ -1,0 +1,53 @@
+<section class="panel chat-panel" id="messages">
+  <div class="chat-heading">
+    <div><small>AREEJ DIRECT</small><h2>Messages</h2><p class="muted">Private conversations between academy accounts.</p></div>
+    <span class="chat-secure"><span></span> Private inbox</span>
+  </div>
+  <div class="chat-layout">
+    <aside class="chat-compose">
+      <div class="chat-compose-title"><span class="chat-compose-icon">✉</span><div><strong>New message</strong><small>Start a conversation</small></div></div>
+      <form method="post" action="{{ url_for('send_message') }}" enctype="multipart/form-data" class="chat-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+        <label for="recipient_id">Recipient</label>
+        <select id="recipient_id" name="recipient_id" required>
+          <option value="">Choose a person</option>
+          {% for person in recipients %}
+          <option value="{{ person.id }}">{{ person.display_name }} · {{ person.role|title }}</option>
+          {% endfor %}
+        </select>
+        <label for="message_body">Your message</label>
+        <textarea id="message_body" name="body" rows="5" maxlength="5000" placeholder="Write your message here..." ></textarea>
+        <label class="chat-attach" for="attachment"><span>＋</span> Attach a file, image or voice note</label>
+        <input id="attachment" name="attachment" type="file" accept="image/*,.pdf,.doc,.docx,audio/*">
+        <button class="btn primary chat-send" type="submit">Send message <span>➤</span></button>
+      </form>
+    </aside>
+    <div class="chat-history">
+      <div class="chat-history-head"><div><strong>Conversation history</strong><small>Messages you have sent and received</small></div><span class="chat-count">{{ portal_messages|length }} shown</span></div>
+      {% if portal_messages %}
+      <div class="chat-stream">
+        {% for message in portal_messages %}
+        <article class="chat-message{% if message.sender_id == current_user_id %} chat-outgoing{% else %} chat-incoming{% endif %}">
+          <div class="chat-avatar">{{ (message.sender_name or 'U')[0]|upper }}</div>
+          <div class="chat-bubble-wrap">
+            <div class="chat-message-meta">
+              <strong>{{ 'You' if message.sender_id == current_user_id else (message.sender_name or 'Unknown user') }}</strong>
+              <span>{{ message.sender_role|title }} · {{ message.created_at }}</span>
+            </div>
+            <div class="chat-bubble">
+              {% if message.body %}<p>{{ message.body }}</p>{% endif %}
+              {% if message.attachment_path %}
+              <a class="chat-file" href="{{ url_for('message_attachment', filename=message.attachment_path) }}"><span>↧</span>{{ message.attachment_name }}</a>
+              {% if message.attachment_type.startswith('audio/') %}<audio controls src="{{ url_for('message_attachment', filename=message.attachment_path) }}"></audio>{% endif %}
+              {% endif %}
+            </div>
+          </div>
+        </article>
+        {% endfor %}
+      </div>
+      {% else %}
+      <div class="chat-empty"><span>✉</span><strong>Your inbox is ready</strong><p>Choose a recipient and send your first message. Replies will appear here and remain in your message history.</p></div>
+      {% endif %}
+    </div>
+  </div>
+</section>

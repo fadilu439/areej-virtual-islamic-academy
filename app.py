@@ -10,6 +10,8 @@ from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, session, flash, g, abort, send_from_directory, send_file
 from werkzeug.security import generate_password_hash, check_password_hash
 from werkzeug.utils import secure_filename
+from postgres_compat import PostgresCompatConnection
+from storage_backend import save_upload, read_upload
 
 BASE = Path(__file__).resolve().parent
 DATA_DIR = Path(os.environ.get("AREEJ_DATA_DIR", BASE))
@@ -39,8 +41,12 @@ def csrf_guard():
 
 def db():
     if "db" not in g:
-        g.db = sqlite3.connect(DB_PATH)
-        g.db.row_factory = sqlite3.Row
+        database_url = os.environ.get("AREEJ_DATABASE_URL")
+        if database_url:
+            g.db = PostgresCompatConnection.connect(database_url)
+        else:
+            g.db = sqlite3.connect(DB_PATH)
+            g.db.row_factory = sqlite3.Row
     return g.db
 
 @app.teardown_appcontext
@@ -49,6 +55,24 @@ def close_db(error=None):
     if conn: conn.close()
 
 def init_db():
+    database_url = os.environ.get("AREEJ_DATABASE_URL")
+    if database_url:
+        # PostgreSQL tables are created by the reviewed SQL migration.
+        # Never seed demo users or silently create a second schema here.
+        conn = PostgresCompatConnection.connect(database_url)
+        try:
+            schema = conn.execute(
+                "SELECT to_regnamespace('areej_app') AS schema_name"
+            ).fetchone()
+            if not schema or schema["schema_name"] is None:
+                raise RuntimeError(
+                    "Supabase schema areej_app is missing. Run "
+                    "migrations/001_areej_compat_schema.sql first."
+                )
+        finally:
+            conn.close()
+        return
+
     conn = sqlite3.connect(DB_PATH)
     conn.executescript("""
     CREATE TABLE IF NOT EXISTS users (
@@ -187,6 +211,8 @@ def sitemap():
 @app.route("/admin/backup/download")
 @roles("admin")
 def download_backup():
+    if os.environ.get("AREEJ_DATABASE_URL"):
+        abort(503, description="PostgreSQL backup export is not enabled yet.")
     memory_file = io.BytesIO()
     with zipfile.ZipFile(memory_file, "w", zipfile.ZIP_DEFLATED) as archive:
         if DB_PATH.exists():
@@ -222,8 +248,8 @@ def admission_enquiry():
         if extension not in allowed_extensions:
             flash("Payment proof must be a JPG, PNG or PDF file.", "error")
             return redirect(url_for("index", _anchor="admissions"))
-        proof_name = secure_filename(f"{secrets.token_hex(12)}_{proof.filename}")
-        proof.save(UPLOAD_FOLDER / proof_name)
+        proof_name = save_upload(proof, "payment-proofs", UPLOAD_FOLDER,
+                                f"{secrets.token_hex(12)}_{proof.filename}")
 
     db().execute("""INSERT INTO enrollments
         (student_name, age, programme, guardian_name, contact, location, payment_proof)
@@ -303,8 +329,8 @@ def send_message():
         attachment_name = secure_filename(upload.filename)
         if not attachment_name: attachment_name = "attachment"
         unique_name = f"{secrets.token_hex(12)}_{attachment_name}"
-        upload.save(MESSAGE_FOLDER / unique_name)
-        attachment_path, attachment_type = unique_name, upload.content_type
+        attachment_path = save_upload(upload, "messages", MESSAGE_FOLDER, unique_name)
+        attachment_type = upload.content_type
     if not recipient or (not body and not attachment_path):
         flash("Choose a recipient and add a message or attachment.", "error")
     else:
@@ -321,7 +347,15 @@ def message_attachment(filename):
     permitted = db().execute("SELECT id FROM messages WHERE attachment_path=? AND (sender_id=? OR recipient_id=?)",
                              (filename, session["user_id"], session["user_id"])).fetchone()
     if not permitted: abort(403)
-    return send_from_directory(MESSAGE_FOLDER, filename, as_attachment=True)
+    try:
+        content = read_upload(filename, MESSAGE_FOLDER)
+    except FileNotFoundError:
+        abort(404)
+    except Exception:
+        app.logger.exception("Unable to retrieve private message attachment")
+        abort(503)
+    return send_file(io.BytesIO(content), download_name=Path(filename).name,
+                     mimetype="application/octet-stream", as_attachment=True)
 
 @app.route("/student")
 @roles("student")
@@ -461,7 +495,8 @@ def submit_assignment():
     file_name = file_path = ""
     if upload and upload.filename:
         file_name = secure_filename(upload.filename)
-        file_path = f"{secrets.token_hex(12)}_{file_name}"; upload.save(MESSAGE_FOLDER / file_path)
+        file_path = save_upload(upload, "assignment-submissions", MESSAGE_FOLDER,
+                                 f"{secrets.token_hex(12)}_{file_name}")
     db().execute("INSERT OR REPLACE INTO assignment_submissions(assignment_id,student_id,content,file_name,file_path) VALUES(?,?,?,?,?)",
                  (assignment_id, session["user_id"], content, file_name, file_path))
     db().commit(); flash("Assignment submitted successfully.", "success")

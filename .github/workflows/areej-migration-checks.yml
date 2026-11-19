@@ -1,0 +1,22 @@
+name: Areej migration checks
+on:
+  push:
+    branches: [feature/supabase-migration]
+  pull_request:
+    branches: [main]
+jobs:
+  python-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Compile Python files
+        run: python -m compileall -q app.py postgres_compat.py storage_backend.py scripts
+      - name: Run storage adapter tests
+        run: python -m unittest discover -s tests -v
+      - name: Check dependency consistency
+        run: python -m pip check
