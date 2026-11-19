@@ -224,3 +224,16 @@ def test_health_endpoint_reports_database_failure(client):
         response = client.get("/health")
     assert response.status_code == 503
     assert response.get_json()["status"] == "unhealthy"
+
+
+def test_render_requires_stable_session_secret(monkeypatch):
+    monkeypatch.setenv("RENDER", "true")
+    monkeypatch.delenv("AREEJ_SECRET_KEY", raising=False)
+    with pytest.raises(RuntimeError, match="AREEJ_SECRET_KEY must be configured on Render"):
+        app_module.configured_secret_key()
+
+
+def test_local_development_can_generate_session_secret(monkeypatch):
+    monkeypatch.delenv("RENDER", raising=False)
+    monkeypatch.delenv("AREEJ_SECRET_KEY", raising=False)
+    assert len(app_module.configured_secret_key()) >= 32
