@@ -161,7 +161,7 @@ def test_upload_signature_accepts_png_header():
     from werkzeug.datastructures import FileStorage
 
     png = FileStorage(
-        stream=BytesIO(b"\\x89PNG\\r\\n\\x1a\\n" + b"test payload"),
+        stream=BytesIO(b"\x89PNG\r\n\x1a\n" + b"test payload"),
         filename="proof.png",
     )
     assert app_module.valid_upload_signature(png, "png") is True
