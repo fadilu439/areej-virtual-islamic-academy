@@ -479,11 +479,32 @@ def staff_dashboard():
     conn=db(); messages=conn.execute("SELECT m.*, u.display_name AS sender_name, u.role AS sender_role, r.display_name AS recipient_name FROM messages m JOIN users u ON u.id=m.sender_id JOIN users r ON r.id=m.recipient_id WHERE m.recipient_id=? OR m.sender_id=? ORDER BY m.created_at ASC LIMIT 50", (session["user_id"], session["user_id"])).fetchall()
     classes = conn.execute("SELECT * FROM classes WHERE teacher_id=? ORDER BY id DESC", (session["user_id"],)).fetchall()
     courses = conn.execute("SELECT * FROM courses ORDER BY name").fetchall()
-    students = conn.execute("SELECT id,display_name FROM users WHERE role='student' ORDER BY display_name").fetchall()
+    students = conn.execute(
+        """SELECT DISTINCT u.id, u.display_name
+           FROM users u
+           JOIN enrollments_academic ea ON ea.student_id=u.id
+           JOIN classes cl ON cl.id=ea.class_id
+           WHERE u.role='student' AND cl.teacher_id=?
+           ORDER BY u.display_name""",
+        (session["user_id"],),
+    ).fetchall()
     assignments = conn.execute("SELECT a.*, cl.name AS class_name FROM assignments a JOIN classes cl ON cl.id=a.class_id WHERE cl.teacher_id=? ORDER BY a.created_at DESC", (session["user_id"],)).fetchall()
-    return render_template("staff.html", classes=classes, courses=courses, students=students,
-                           assignments=assignments, portal_messages=messages,
-                           recipients=portal_contacts(conn, "staff"))
+    attendance_summary = conn.execute(
+        """SELECT COUNT(*) AS total,
+                  COALESCE(SUM(CASE WHEN a.status='present' THEN 1 ELSE 0 END), 0) AS present
+           FROM attendance a
+           JOIN classes cl ON cl.id=a.class_id
+           WHERE cl.teacher_id=?""",
+        (session["user_id"],),
+    ).fetchone()
+    attendance_rate = round(100 * attendance_summary["present"] / attendance_summary["total"]) if attendance_summary["total"] else 0
+    return render_template(
+        "staff.html", classes=classes, courses=courses, students=students,
+        assignments=assignments, portal_messages=messages,
+        class_count=len(classes), student_count=len(students),
+        attendance_rate=attendance_rate, assignment_count=len(assignments),
+        recipients=portal_contacts(conn, "staff")
+    )
 
 @app.route("/admin", methods=["GET","POST"])
 @roles("admin")
