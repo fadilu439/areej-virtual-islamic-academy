@@ -1,0 +1,57 @@
+name: Areej encrypted database backup
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "20 2 * * *"
+
+permissions:
+  contents: read
+
+jobs:
+  encrypted-backup:
+    runs-on: ubuntu-latest
+    env:
+      AREEJ_DATABASE_URL: ${{ secrets.AREEJ_DATABASE_URL }}
+      AREEJ_BACKUP_AGE_RECIPIENT: ${{ secrets.AREEJ_BACKUP_AGE_RECIPIENT }}
+      R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET: ${{ secrets.R2_BUCKET }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Check backup configuration
+        shell: bash
+        run: |
+          if [[ -z "$AREEJ_DATABASE_URL" || -z "$AREEJ_BACKUP_AGE_RECIPIENT" ]]; then
+            echo "::error::Add AREEJ_DATABASE_URL and AREEJ_BACKUP_AGE_RECIPIENT as GitHub Actions secrets before backups can run."
+            exit 1
+          fi
+
+      - name: Install PostgreSQL and age tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client age
+
+      - name: Create encrypted database backup
+        run: python scripts/backup_postgres.py
+
+      - name: Retain encrypted backup in private repository artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: areej-encrypted-postgres-backup-${{ github.run_id }}
+          path: backups/*.age
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Copy encrypted backup to private Cloudflare R2 bucket when configured
+        if: ${{ env.R2_ACCOUNT_ID != '' && env.R2_ACCESS_KEY_ID != '' && env.R2_SECRET_ACCESS_KEY != '' && env.R2_BUCKET != '' }}
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          AWS_DEFAULT_REGION: auto
+        run: |
+          python -m pip install --quiet awscli
+          aws s3 cp backups/ "s3://$R2_BUCKET/areej/database/"             --recursive --endpoint-url "https://$R2_ACCOUNT_ID.r2.cloudflarestorage.com"             --only-show-errors
