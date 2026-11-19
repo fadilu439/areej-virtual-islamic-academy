@@ -120,18 +120,50 @@ def init_db():
     }.items():
         if column not in message_columns:
             conn.execute(f"ALTER TABLE messages ADD COLUMN {column} {definition}")
-    # Never seed public, predictable demo credentials automatically.
-    # A first administrator may be bootstrapped only with an explicit,
-    # private environment variable supplied by the deployment owner.
+    # Never create predictable demo accounts automatically.
+    # Create the first administrator only when the deployment owner
+    # explicitly supplies a private environment variable.
     initial_admin_password = os.environ.get("AREEJ_INITIAL_ADMIN_PASSWORD", "")
-    if initial_admin_password and not conn.execute(
-        "SELECT id FROM users WHERE username=?", ("admin",)
-    ).fetchone():
-        conn.execute(
-            "INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
-            ("admin", generate_password_hash(initial_admin_password), "admin", "Academy Administrator"),
-        )
-    conn.commit(); conn.close()
+
+    if initial_admin_password:
+        if len(initial_admin_password) < 12:
+            raise RuntimeError(
+                "AREEJ_INITIAL_ADMIN_PASSWORD must contain at least 12 characters."
+            )
+
+        existing_admin = conn.execute(
+            "SELECT id FROM users WHERE role=? LIMIT 1",
+            ("admin",)
+        ).fetchone()
+
+        if not existing_admin:
+            existing_username = conn.execute(
+                "SELECT id FROM users WHERE username=?",
+                ("admin",)
+            ).fetchone()
+
+            if existing_username:
+                raise RuntimeError(
+                    "The username 'admin' already exists but is not an administrator. "
+                    "Resolve this account before creating the initial administrator."
+                )
+
+            conn.execute(
+                """
+                INSERT INTO users
+                (username, password_hash, role, display_name)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    "admin",
+                    generate_password_hash(initial_admin_password),
+                    "admin",
+                    "Academy Administrator"
+                )
+            )
+
+    conn.commit()
+    conn.close()
 
 init_db()
 
