@@ -207,7 +207,8 @@ def test_staff_sees_only_students_enrolled_in_their_classes(client):
     assert response.status_code == 200
     assert b"Test Student" in response.data
     assert b"Private Student" not in response.data
-    assert b"Teacher's Class" in response.data
+    from html import unescape
+    assert "Teacher's Class" in unescape(response.get_data(as_text=True))
 
 
 def test_health_endpoint_checks_database(client):
