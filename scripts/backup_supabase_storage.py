@@ -1,7 +1,7 @@
-"""Create an encrypted archive of every object in Areej's private Storage bucket.
+"""Create an encrypted archive of Areej's private Supabase Storage buckets.
 
-Requires the Supabase Python client and age on PATH. Files are downloaded to a
-temporary tar stream, encrypted, and never retained in plaintext on disk.
+Requires the Supabase Python client and age on PATH. Objects are downloaded
+into a temporary tar archive, encrypted, and plaintext is removed on exit.
 """
 from __future__ import annotations
 
@@ -56,13 +56,18 @@ def main() -> int:
         or ""
     ).strip()
     recipient = os.environ.get("AREEJ_BACKUP_AGE_RECIPIENT", "").strip()
-    bucket_name = os.environ.get("AREEJ_SUPABASE_BUCKET", "areej-private-files").strip()
-    if not url or not key or not recipient:
+    buckets_raw = os.environ.get(
+        "AREEJ_SUPABASE_BUCKETS",
+        os.environ.get("AREEJ_SUPABASE_BUCKET", "areej-private-files"),
+    )
+    bucket_names = list(dict.fromkeys(name.strip() for name in buckets_raw.split(",") if name.strip()))
+    if not url or not key or not recipient or not bucket_names:
         raise SystemExit(
-            "Set SUPABASE_URL, SUPABASE_SECRET_KEY and AREEJ_BACKUP_AGE_RECIPIENT privately."
+            "Set SUPABASE_URL, SUPABASE_SECRET_KEY, AREEJ_SUPABASE_BUCKETS and AREEJ_BACKUP_AGE_RECIPIENT privately."
         )
-    if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{1,62}", bucket_name):
-        raise SystemExit("Invalid AREEJ_SUPABASE_BUCKET value.")
+    for bucket_name in bucket_names:
+        if not re.fullmatch(r"[a-z0-9][a-z0-9_-]{1,62}", bucket_name):
+            raise SystemExit("Invalid Supabase Storage bucket name.")
     if not shutil.which("age"):
         raise SystemExit("Required backup utility not found on PATH: age")
 
@@ -71,19 +76,21 @@ def main() -> int:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     encrypted_path = os.path.join(output_dir, f"areej-storage-{stamp}.tar.gz.age")
     client = create_client(url, key)
-    bucket = client.storage.from_(bucket_name)
 
     with tempfile.TemporaryDirectory(prefix="areej-storage-backup-") as temporary:
         archive_path = os.path.join(temporary, "storage.tar.gz")
         count = 0
         with tarfile.open(archive_path, "w:gz") as archive:
-            for object_key in list_all_objects(bucket):
-                payload = bytes(bucket.download(object_key))
-                info = tarfile.TarInfo(name=object_key)
-                info.size = len(payload)
-                info.mtime = 0
-                archive.addfile(info, io.BytesIO(payload))
-                count += 1
+            for bucket_name in bucket_names:
+                bucket = client.storage.from_(bucket_name)
+                for object_key in list_all_objects(bucket):
+                    payload = bytes(bucket.download(object_key))
+                    archive_name = f"{bucket_name}/{object_key}"
+                    info = tarfile.TarInfo(name=archive_name)
+                    info.size = len(payload)
+                    info.mtime = 0
+                    archive.addfile(info, io.BytesIO(payload))
+                    count += 1
 
         subprocess.run(
             ["age", "--recipient", recipient, "--output", encrypted_path, archive_path],
@@ -94,6 +101,7 @@ def main() -> int:
     with open(encrypted_path, "rb") as encrypted_file:
         digest = hashlib.sha256(encrypted_file.read()).hexdigest()
     print(f"Encrypted Storage backup created for {count} object(s): {os.path.basename(encrypted_path)}")
+    print(f"Buckets included: {', '.join(bucket_names)}")
     print(f"SHA-256: {digest}")
     print("No plaintext Storage archive was retained.")
     return 0
