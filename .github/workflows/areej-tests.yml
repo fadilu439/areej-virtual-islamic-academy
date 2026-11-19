@@ -42,5 +42,7 @@ jobs:
           python -m pip install -r requirements.txt "pytest>=8,<10"
       - name: Compile application
         run: python -m py_compile app.py
+      - name: Test Supabase permission-hardening migration
+        run: psql "$AREEJ_TEST_DATABASE_URL" -v ON_ERROR_STOP=1 -f tests/sql/test_security_permissions_migration.sql
       - name: Run security and regression tests
         run: python -m pytest -q
