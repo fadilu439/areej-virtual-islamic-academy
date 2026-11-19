@@ -1,6 +1,7 @@
 import datetime
 import hmac
 import io
+import math
 import os
 import secrets
 import sqlite3
@@ -565,7 +566,9 @@ def staff_work():
             flash("Enter valid numeric assessment scores.", "error")
             return redirect(url_for("staff_dashboard", _anchor="classes"))
         assessment = request.form.get("assessment", "").strip()
-        if not owned_enrolment or not assessment or maximum_score <= 0 or score < 0 or score > maximum_score:
+        if (not owned_enrolment or not assessment
+                or not math.isfinite(score) or not math.isfinite(maximum_score)
+                or maximum_score <= 0 or score < 0 or score > maximum_score):
             abort(403)
         conn.execute("INSERT INTO results(class_id,student_id,assessment,score,maximum_score,feedback) VALUES(?,?,?,?,?,?)",
                      (class_id, student_id, assessment, score, maximum_score, request.form.get("feedback","").strip()))
