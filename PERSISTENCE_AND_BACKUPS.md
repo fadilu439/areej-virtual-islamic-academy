@@ -10,9 +10,18 @@
 
 ## Supabase migrations
 
-The existing project already contains the `areej_app` schema and the core tables. Do not rerun the initial schema migration against populated tables as a data import. Apply only the reviewed incremental migration `migrations/002_areej_login_attempts.sql` to add the PostgreSQL table required by the hardened login throttle.
+Apply reviewed migrations in order and only after a current encrypted backup has been created:
 
-The compatibility schema has Row Level Security disabled, which triggers a Supabase Security Advisor warning. A read-only privilege check previously confirmed that `anon` and `authenticated` have no schema USAGE or table SELECT grants on this schema. The Flask app uses a server-side PostgreSQL connection. Do not blindly enable RLS without designing and testing server policies; enabling RLS with no policies can break application access. Keep the schema and all its tables/sequences inaccessible to client roles.
+1. `migrations/002_areej_login_attempts.sql` adds the PostgreSQL table required by the hardened login throttle.
+2. `migrations/003_areej_public_permissions_hardening.sql` removes unnecessary client maintenance privileges from existing `public` tables, removes direct client access to public sequences/functions that are not used by the current client policies, locks down the Flask-only `areej_app` schema, and tightens default privileges for future objects created by `postgres` and `supabase_admin`.
+
+The permission migration intentionally preserves existing `SELECT`, `INSERT`, `UPDATE`, and `DELETE` table grants on `public` where they are currently present. Existing Row Level Security policies remain the row-level access control for those operations. It does not enable or disable RLS and does not change the existing policies. New public tables, sequences and functions require deliberate grants before client access is possible.
+
+The compatibility schema `areej_app` has Row Level Security disabled because the Flask application uses a server-side PostgreSQL connection. Keep this schema and its tables, sequences, and functions inaccessible to `PUBLIC`, `anon`, and `authenticated`. Do not blindly enable RLS here: enabling it without policies can break the Flask backend.
+
+The permission migration is covered by a disposable PostgreSQL regression test in `tests/sql/test_security_permissions_migration.sql`, which checks existing grants and the default privileges for both object-creating roles. The GitHub Actions test workflow runs this test against its own temporary PostgreSQL service; it does not connect to the hosted Supabase project.
+
+Before applying migration 003 to the hosted project, verify the latest encrypted backup is downloadable and retain its decryption key offline. Apply it first to a separate staging database/schema, then test public course/announcement reads, admission submissions, all four portals, messaging, uploads and the Flask health endpoint. Do not apply it to production until those checks pass.
 
 ## Render staging configuration
 
@@ -44,7 +53,7 @@ Keep the age identity/private key offline and separate from GitHub. Never store 
 
 ## Important limitations
 
-- The workflow now includes a separate encrypted backup of objects in the configured private Storage bucket. A full restore test of both the database and every Storage object is still required before claiming disaster recovery is proven.
+- The workflow includes a separate encrypted backup of objects in the configured private Storage bucket. A full restore test of both the database and every Storage object is still required before claiming disaster recovery is proven.
 - GitHub artifacts expire after 30 days. R2 retention is optional and must be configured before this becomes long-term off-site backup.
 - The migration scripts are for a fresh/empty staging schema. They deliberately refuse to overwrite populated destination tables. The existing Areej Supabase compatibility schema already contains records, so do not run the import script against it.
 - The production Render service must not be switched to PostgreSQL or Supabase Storage until a staging service has passed all four portal, messaging, upload, login-throttle, backup and restore tests.
