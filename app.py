@@ -42,17 +42,17 @@ def valid_upload_signature(upload, extension):
     header = upload.stream.read(16)
     upload.stream.seek(0)
     signatures = {
-        "jpg": header.startswith(b"\\xff\\xd8\\xff"),
-        "jpeg": header.startswith(b"\\xff\\xd8\\xff"),
-        "png": header.startswith(b"\\x89PNG\\r\\n\\x1a\\n"),
+        "jpg": header.startswith(b"\xff\xd8\xff"),
+        "jpeg": header.startswith(b"\xff\xd8\xff"),
+        "png": header.startswith(b"\x89PNG\r\n\x1a\n"),
         "pdf": header.startswith(b"%PDF-"),
         "webp": len(header) >= 12 and header[:4] == b"RIFF" and header[8:12] == b"WEBP",
         "ogg": header.startswith(b"OggS"),
         "mp3": header.startswith(b"ID3") or (len(header) >= 2 and header[0] == 0xFF and (header[1] & 0xE0) == 0xE0),
         "wav": len(header) >= 12 and header[:4] == b"RIFF" and header[8:12] == b"WAVE",
-        "webm": header.startswith(b"\\x1a\\x45\\xdf\\xa3"),
-        "doc": header.startswith(b"\\xd0\\xcf\\x11\\xe0\\xa1\\xb1\\x1a\\xe1"),
-        "docx": header.startswith(b"PK\\x03\\x04"),
+        "webm": header.startswith(b"\x1a\x45\xdf\xa3"),
+        "doc": header.startswith(b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1"),
+        "docx": header.startswith(b"PK\x03\x04"),
     }
     if extension == "txt":
         try:
