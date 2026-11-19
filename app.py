@@ -1,4 +1,5 @@
 import datetime
+import hashlib
 import hmac
 import io
 import math
@@ -92,6 +93,10 @@ def close_db(error=None):
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     conn.executescript("""
+    CREATE TABLE IF NOT EXISTS login_attempts (
+      attempt_key TEXT PRIMARY KEY, window_started_at REAL NOT NULL,
+      failed_attempts INTEGER NOT NULL DEFAULT 0, blocked_until REAL
+    );
     CREATE TABLE IF NOT EXISTS users (
       id INTEGER PRIMARY KEY, username TEXT UNIQUE NOT NULL,
       password_hash TEXT NOT NULL, role TEXT NOT NULL,
@@ -334,8 +339,29 @@ def login():
     if request.method == "POST":
         username = request.form.get("username", "").strip()
         password = request.form.get("password", "")
-        user = db().execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
+        now = datetime.datetime.now(datetime.UTC).timestamp()
+        client_ip = request.remote_addr or "unknown"
+        attempt_key = hashlib.sha256(
+            f"{username.casefold()}\0{client_ip}".encode("utf-8")
+        ).hexdigest()
+        conn = db()
+        attempt = conn.execute(
+            "SELECT * FROM login_attempts WHERE attempt_key=?", (attempt_key,)
+        ).fetchone()
+
+        if attempt and attempt["blocked_until"] and attempt["blocked_until"] > now:
+            flash("Too many unsuccessful sign-in attempts. Please wait and try again.", "error")
+            return render_template("login.html"), 429
+
+        if attempt and now - attempt["window_started_at"] >= 900:
+            conn.execute("DELETE FROM login_attempts WHERE attempt_key=?", (attempt_key,))
+            conn.commit()
+            attempt = None
+
+        user = conn.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
         if user and check_password_hash(user["password_hash"], password):
+            conn.execute("DELETE FROM login_attempts WHERE attempt_key=?", (attempt_key,))
+            conn.commit()
             session.clear()
             session.update(
                 user_id=user["id"],
@@ -345,6 +371,23 @@ def login():
                 csrf_token=secrets.token_hex(32),
             )
             return redirect(url_for("portal_home"))
+
+        if attempt:
+            failures = attempt["failed_attempts"] + 1
+            blocked_until = now + 600 if failures >= 8 else None
+            conn.execute(
+                "UPDATE login_attempts SET failed_attempts=?, blocked_until=? WHERE attempt_key=?",
+                (failures, blocked_until, attempt_key),
+            )
+        else:
+            conn.execute(
+                "INSERT INTO login_attempts(attempt_key,window_started_at,failed_attempts,blocked_until) VALUES(?,?,1,NULL)",
+                (attempt_key, now),
+            )
+        conn.execute(
+            "DELETE FROM login_attempts WHERE window_started_at < ?", (now - 86400,)
+        )
+        conn.commit()
         flash("The username or password is incorrect.", "error")
     return render_template("login.html")
 
@@ -458,8 +501,8 @@ def admin_dashboard():
             password = request.form.get(password_field, "")
             if not display_name or not username or not password:
                 flash(f"Please enter the {label.lower()} name, username and password.", "error")
-            elif len(password) < 6:
-                flash("The password must contain at least 6 characters.", "error")
+            elif len(password) < 12:
+                flash("The password must contain at least 12 characters.", "error")
             elif conn.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone():
                 flash("That username is already in use. Please choose another one.", "error")
             else:
@@ -635,6 +678,13 @@ def logout():
 def forbidden(error): return render_template("error.html", code=403, message="You do not have permission to view this page."), 403
 @app.errorhandler(404)
 def missing(error): return render_template("error.html", code=404, message="This page could not be found."), 404
+
+@app.errorhandler(429)
+def too_many_requests(error):
+    return render_template(
+        "error.html", code=429,
+        message="Too many requests. Please wait a few minutes and try again."
+    ), 429
 
 if __name__ == "__main__":
     init_db()
