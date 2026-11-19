@@ -240,6 +240,7 @@ def download_backup():
 @app.route("/admissions/enquire", methods=["POST"])
 def admission_enquiry():
     student_name = request.form.get("student_name", "").strip()
+    age = request.form.get("age", "").strip()
     programme = request.form.get("programme", "").strip()
     phone = request.form.get("phone", "").strip()
     email = request.form.get("email", "").strip()
@@ -247,8 +248,16 @@ def admission_enquiry():
     if email:
         contact = f"{contact} / {email}" if contact else email
 
-    if not student_name or not programme or not contact:
-        flash("Please complete the required student, programme and contact fields.", "error")
+    if not student_name or not age or not programme or not contact:
+        flash("Please complete the required student name, age, programme and contact fields.", "error")
+        return redirect(url_for("index", _anchor="admissions"))
+    try:
+        student_age = int(age)
+    except ValueError:
+        flash("Please enter a valid student age between 3 and 100.", "error")
+        return redirect(url_for("index", _anchor="admissions"))
+    if not 3 <= student_age <= 100:
+        flash("Student age must be between 3 and 100.", "error")
         return redirect(url_for("index", _anchor="admissions"))
 
     proof_name = ""
