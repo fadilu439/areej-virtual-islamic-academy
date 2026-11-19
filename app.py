@@ -7,6 +7,8 @@ import os
 import secrets
 import sqlite3
 import zipfile
+from postgres_compat import PostgresCompatConnection
+from storage_backend import save_upload, read_upload
 from pathlib import Path
 from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, session, flash, g, abort, send_from_directory, send_file
@@ -76,13 +78,17 @@ def save_validated_upload(upload, folder, allowed_extensions):
     if extension not in allowed_extensions or not valid_upload_signature(upload, extension):
         return None
     stored_name = f"{secrets.token_hex(12)}_{safe_name}"
-    upload.save(folder / stored_name)
-    return stored_name
+    category = "payment-proofs" if folder == UPLOAD_FOLDER else "messages"
+    return save_upload(upload, category, folder, stored_name)
 
 def db():
     if "db" not in g:
-        g.db = sqlite3.connect(DB_PATH)
-        g.db.row_factory = sqlite3.Row
+        database_url = os.environ.get("AREEJ_DATABASE_URL", "").strip()
+        if database_url:
+            g.db = PostgresCompatConnection.connect(database_url)
+        else:
+            g.db = sqlite3.connect(DB_PATH)
+            g.db.row_factory = sqlite3.Row
     return g.db
 
 @app.teardown_appcontext
@@ -91,6 +97,22 @@ def close_db(error=None):
     if conn: conn.close()
 
 def init_db():
+    database_url = os.environ.get("AREEJ_DATABASE_URL", "").strip()
+    if database_url:
+        if not os.environ.get("AREEJ_SECRET_KEY"):
+            raise RuntimeError("AREEJ_SECRET_KEY must be set when PostgreSQL is enabled.")
+        conn = PostgresCompatConnection.connect(database_url)
+        try:
+            schema = conn.execute("SELECT to_regnamespace('areej_app') AS schema_name").fetchone()
+            if not schema or schema["schema_name"] is None:
+                raise RuntimeError("Supabase schema areej_app is missing. Apply the reviewed migrations first.")
+            throttle = conn.execute("SELECT to_regclass('areej_app.login_attempts') AS table_name").fetchone()
+            if not throttle or throttle["table_name"] is None:
+                raise RuntimeError("Supabase table areej_app.login_attempts is missing. Apply migration 002_areej_login_attempts first.")
+        finally:
+            conn.close()
+        return
+
     conn = sqlite3.connect(DB_PATH)
     conn.executescript("""
     CREATE TABLE IF NOT EXISTS login_attempts (
@@ -275,6 +297,8 @@ def sitemap():
 @app.route("/admin/backup/download")
 @roles("admin")
 def download_backup():
+    if os.environ.get("AREEJ_DATABASE_URL"):
+        return {"error": "Database backups are handled by the encrypted backup workflow, not this SQLite download route."}, 503
     memory_file = io.BytesIO()
     with zipfile.ZipFile(memory_file, "w", zipfile.ZIP_DEFLATED) as archive:
         if DB_PATH.exists():
@@ -472,7 +496,15 @@ def message_attachment(filename):
     permitted = db().execute("SELECT id FROM messages WHERE attachment_path=? AND (sender_id=? OR recipient_id=?)",
                              (filename, session["user_id"], session["user_id"])).fetchone()
     if not permitted: abort(403)
-    return send_from_directory(MESSAGE_FOLDER, filename, as_attachment=True)
+    message = db().execute("SELECT attachment_name FROM messages WHERE attachment_path=? AND (sender_id=? OR recipient_id=?)",
+                            (filename, session["user_id"], session["user_id"])).fetchone()
+    try:
+        content = read_upload(filename, MESSAGE_FOLDER)
+    except (FileNotFoundError, ValueError):
+        abort(404)
+    return send_file(io.BytesIO(content), as_attachment=True,
+                     download_name=(message["attachment_name"] or "attachment"),
+                     mimetype="application/octet-stream")
 
 @app.route("/student")
 @roles("student")
