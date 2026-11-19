@@ -10,9 +10,9 @@
 <h2 class="section-title">Family Overview</h2>
 <section class="metrics">
   <article><small>Children Linked</small><strong>{{ children|length }}</strong><p>Student account linked</p></article>
-  <article><small>Attendance</small><strong>Live</strong><p>School register</p></article>
+  <article><small>Attendance</small><strong>See below</strong><p>Check recorded attendance</p></article>
   <article><small>Results</small><strong>{{ child_results|length }}</strong><p>Recorded assessments</p></article>
-  <article><small>Payments</small><strong>Up to date</strong><p>All settled</p></article>
+  <article><small>Payments</small><strong>Not recorded</strong><p>Contact the academy for payment details</p></article>
 </section>
 
 <section class="panel" id="children">
@@ -25,11 +25,7 @@
   <section class="panel" id="attendance">
     <small>ATTENDANCE</small>
     <h2>Attendance Overview</h2>
-    <div class="schedule-list">
-      <div><strong>March</strong><span>18 lessons attended</span></div>
-      <div><strong>April</strong><span>20 lessons attended</span></div>
-      <div><strong>Current trend</strong><span>Above expected target</span></div>
-    </div>
+    <div class="empty compact"><p>Attendance records for your linked children will appear here when the academy records them.</p></div>
   </section>
 
   <section class="panel" id="results">
@@ -43,10 +39,7 @@
   <section class="panel" id="payments">
     <small>FINANCE</small>
     <h2>Payments</h2>
-    <div class="mini-list">
-      <div><strong>Current invoice</strong><span>Paid in full</span></div>
-      <div><strong>Next payment</strong><span>Due in 21 days</span></div>
-    </div>
+    <div class="empty compact"><p>No payment records are available in the portal yet. Please contact the academy for current fee information.</p></div>
   </section>
 
   <section class="panel" id="messages">

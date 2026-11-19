@@ -10,9 +10,9 @@
 <h2 class="section-title">Academic Summary</h2>
 <section class="metrics">
   <article><small>My Courses</small><strong>{{ courses|length }}</strong><p>Courses available</p></article>
-  <article><small>Attendance</small><strong>94%</strong><p>Progress update</p></article>
-  <article><small>Assignments</small><strong>5</strong><p>Due this month</p></article>
-  <article><small>Results</small><strong>Good</strong><p>Performance trend</p></article>
+  <article><small>Lessons Attended</small><strong>{{ attendance_count }}</strong><p>Recorded as present</p></article>
+  <article><small>Assignments</small><strong>{{ assignments|length }}</strong><p>Assigned to your classes</p></article>
+  <article><small>Results</small><strong>{{ results|length }}</strong><p>Recorded assessments</p></article>
 </section>
 
 <section class="panel" id="courses">
