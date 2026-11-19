@@ -165,3 +165,38 @@ def test_upload_signature_accepts_png_header():
         filename="proof.png",
     )
     assert app_module.valid_upload_signature(png, "png") is True
+
+
+def test_staff_sees_only_students_enrolled_in_their_classes(client):
+    with app_module.app.app_context():
+        conn = app_module.db()
+        conn.execute(
+            "INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+            ("teacher-test", generate_password_hash("teacher password 123"), "staff", "Test Teacher"),
+        )
+        conn.execute(
+            "INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+            ("private-student", generate_password_hash("private password 123"), "student", "Private Student"),
+        )
+        conn.execute(
+            "INSERT INTO classes(teacher_id,name) VALUES(?,?)", (3, "Teacher's Class")
+        )
+        conn.execute(
+            "INSERT INTO classes(teacher_id,name) VALUES(?,?)", (1, "Admin's Class")
+        )
+        conn.execute(
+            "INSERT INTO enrollments_academic(student_id,class_id) VALUES(?,?)", (2, 1)
+        )
+        conn.execute(
+            "INSERT INTO enrollments_academic(student_id,class_id) VALUES(?,?)", (4, 2)
+        )
+        conn.commit()
+
+    with client.session_transaction() as session:
+        session.update(user_id=3, username="teacher-test", role="staff", csrf_token="teacher-csrf")
+
+    response = client.get("/staff")
+    assert response.status_code == 200
+    assert b"Test Student" in response.data
+    assert b"Private Student" not in response.data
+    assert b"Teacher's Class" in response.data
