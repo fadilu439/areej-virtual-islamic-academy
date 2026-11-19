@@ -8,6 +8,8 @@ from pathlib import Path
 
 import pytest
 
+from postgres_compat import PostgresCompatConnection
+
 DATABASE_URL = os.environ.get("AREEJ_TEST_DATABASE_URL")
 pytestmark = pytest.mark.skipif(
     not DATABASE_URL,
@@ -82,10 +84,32 @@ def test_login_attempts_migration_creates_private_table_and_index():
         assert "idx_areej_login_attempts_window" in indexes
 
         for role in ("anon", "authenticated"):
-            allowed = conn.execute(
+            schema_allowed = conn.execute(
+                "SELECT has_schema_privilege(%s, 'areej_app', 'USAGE')",
+                (role,),
+            ).fetchone()[0]
+            table_allowed = conn.execute(
                 "SELECT has_table_privilege(%s, 'areej_app.login_attempts', 'SELECT')",
                 (role,),
             ).fetchone()[0]
-            assert allowed is False, f"{role} unexpectedly has SELECT access"
+            assert schema_allowed is False, f"{role} unexpectedly has schema USAGE"
+            assert table_allowed is False, f"{role} unexpectedly has SELECT access"
+
+        # Exercise the real PostgreSQL adapter against the migrated table,
+        # including the SQLite-style placeholders used by the Flask app.
+        compat = PostgresCompatConnection.connect(DATABASE_URL)
+        try:
+            compat.execute(
+                "INSERT INTO login_attempts(attempt_key,window_started_at,failed_attempts,blocked_until) VALUES(?,?,?,?)",
+                ("ci-adapter-check", 100.0, 1, None),
+            )
+            compat.commit()
+            row = compat.execute(
+                "SELECT failed_attempts FROM login_attempts WHERE attempt_key=?",
+                ("ci-adapter-check",),
+            ).fetchone()
+            assert row["failed_attempts"] == 1
+        finally:
+            compat.close()
 
         conn.execute("DROP SCHEMA areej_app CASCADE")
