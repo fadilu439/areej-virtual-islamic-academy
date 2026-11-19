@@ -252,6 +252,11 @@ def privacy_policy():
 
 @app.route("/health")
 def health():
+    try:
+        db().execute("SELECT 1 FROM users LIMIT 1").fetchone()
+    except Exception:
+        app.logger.exception("Application health check failed")
+        return {"status": "unhealthy", "service": "Areej Virtual Islamic Academy"}, 503
     return {"status": "ok", "service": "Areej Virtual Islamic Academy"}
 
 @app.route("/robots.txt")
