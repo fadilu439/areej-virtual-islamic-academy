@@ -404,6 +404,29 @@ def portal_home():
     return redirect(url_for(endpoints[session["role"]]))
 
 def portal_contacts(conn, role):
+    # Staff may contact academy administrators, colleagues and students
+    # enrolled in classes assigned to them, but not unrelated learners.
+    if role == "staff":
+        return conn.execute(
+            """SELECT DISTINCT u.id, u.display_name, u.role
+               FROM users u
+               WHERE u.id != ? AND (
+                   u.role IN ('admin', 'staff')
+                   OR (
+                       u.role = 'student'
+                       AND EXISTS (
+                           SELECT 1
+                           FROM enrollments_academic ea
+                           JOIN classes cl ON cl.id = ea.class_id
+                           WHERE ea.student_id = u.id
+                             AND cl.teacher_id = ?
+                       )
+                   )
+               )
+               ORDER BY u.role, u.display_name""",
+            (session["user_id"], session["user_id"]),
+        ).fetchall()
+
     return conn.execute(
         "SELECT id, display_name, role FROM users WHERE id != ? ORDER BY role, display_name",
         (session["user_id"],),
