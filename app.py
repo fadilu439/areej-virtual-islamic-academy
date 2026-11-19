@@ -172,9 +172,9 @@ def init_db():
     initial_admin_password = os.environ.get("AREEJ_INITIAL_ADMIN_PASSWORD", "")
 
     if initial_admin_password:
-        if len(initial_admin_password) < 12:
+        if len(initial_admin_password) < 8:
             raise RuntimeError(
-                "AREEJ_INITIAL_ADMIN_PASSWORD must contain at least 12 characters."
+                "AREEJ_INITIAL_ADMIN_PASSWORD must contain at least 8 characters."
             )
 
         existing_admin = conn.execute(
@@ -550,8 +550,8 @@ def admin_dashboard():
             password = request.form.get(password_field, "")
             if not display_name or not username or not password:
                 flash(f"Please enter the {label.lower()} name, username and password.", "error")
-            elif len(password) < 12:
-                flash("The password must contain at least 12 characters.", "error")
+            elif len(password) < 8:
+                flash("The password must contain at least 8 characters.", "error")
             elif conn.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone():
                 flash("That username is already in use. Please choose another one.", "error")
             else:
