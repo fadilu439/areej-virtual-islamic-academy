@@ -25,6 +25,13 @@ UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
 MESSAGE_FOLDER.mkdir(parents=True, exist_ok=True)
 app = Flask(__name__)
 
+@app.route("/service-worker.js")
+def service_worker():
+    response = send_from_directory(BASE / "static", "service-worker.js", mimetype="application/javascript", max_age=0)
+    response.headers["Service-Worker-Allowed"] = "/"
+    response.headers["Cache-Control"] = "no-cache"
+    return response
+
 def configured_secret_key():
     """Require a stable secret on Render; allow an ephemeral key for local development."""
     configured = os.environ.get("AREEJ_SECRET_KEY", "").strip()
