@@ -5,6 +5,14 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>AREEJ Virtual Islamic Academy | Home</title>
   <meta name="description" content="Authentic Islamic education through modern online learning.">
+  <meta name="theme-color" content="#071d3b">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="AREEJ Academy">
+  <link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
+  <link rel="icon" href="{{ url_for('static', filename='images/areej-app-icon.svg') }}" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='images/academy-logo.jpg') }}">
   <meta name="google-site-verification" content="9bSBaFk_spuVAnm7GvE0rTNK0QU4sMLP8MiJkMZKs44" />
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Libre+Baskerville:wght@400;700&family=Manrope:wght@400;500;600;700&family=Noto+Naskh+Arabic:wght@500;600;700&display=swap" rel="stylesheet">
@@ -201,5 +209,12 @@
     <div class="container copyright">© {{ year }} AREEJ Virtual Islamic Academy <a href="{{ url_for('privacy_policy') }}">Privacy Policy</a></div>
   </footer>
   <script src="{{ url_for('static', filename='js/public.js') }}"></script>
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("/service-worker.js").catch(error => console.warn("AREEJ offline support:", error));
+      });
+    }
+  </script>
 </body>
 </html>
