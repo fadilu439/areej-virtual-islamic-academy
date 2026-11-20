@@ -1,0 +1,17 @@
+{
+  "id": "/",
+  "name": "AREEJ Virtual Islamic Academy",
+  "short_name": "AREEJ Academy",
+  "description": "Nurturing faith, knowledge and character through online Islamic education.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "display_override": ["standalone", "minimal-ui"],
+  "orientation": "portrait-primary",
+  "background_color": "#f5f8fc",
+  "theme_color": "#071d3b",
+  "icons": [
+    {"src": "/static/images/areej-app-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any"},
+    {"src": "/static/images/areej-app-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable"}
+  ]
+}
