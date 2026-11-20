@@ -1,5 +1,13 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#071d3b">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="AREEJ Academy">
+<link rel="manifest" href="{{ url_for('static', filename='manifest.webmanifest') }}">
+<link rel="icon" href="{{ url_for('static', filename='images/areej-app-icon.svg') }}" type="image/svg+xml">
+<link rel="apple-touch-icon" href="{{ url_for('static', filename='images/academy-logo.jpg') }}">
 <title>{% block title %}Areej Academy{% endblock %}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="{{ url_for('static',filename='css/style.css') }}"></head>
@@ -17,4 +25,11 @@
 {% endif %}</nav><div class="sidebar-bottom"><b>Need assistance?</b><p>Contact your academy administrator for account help.</p><small>● Portal system</small></div></aside>
 <main class="main"><header class="topbar"><div class="top-left"><button id="menuToggle" class="menu-toggle" aria-label="Open menu">☰</button><div><small class="crumb">Areej Academy / {{ current_user.role|title }} Portal</small><h1>{% block heading %}Dashboard{% endblock %}</h1></div></div><div class="user"><span class="avatar">{{ current_user.display_name[0]|upper }}</span><span class="user-copy"><b>{{ current_user.display_name }}</b><small>{{ current_user.role|title }}</small></span><a class="back-home" href="{{ url_for('index') }}">← Back to Home Page</a><form class="signout-form" method="post" action="{{ url_for('logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="signout" type="submit">Sign Out</button></form></div></header>
 <div class="content">{% with msgs=get_flashed_messages(with_categories=true) %}{% for category,msg in msgs %}<div class="flash {{ category }}">{{ msg }}</div>{% endfor %}{% endwith %}{% block content %}{% endblock %}</div>
-<footer>© 2026 Areej Academy <span>Virtual Islamic Academy</span></footer></main><script src="{{ url_for('static',filename='js/script.js') }}"></script></body></html>
+<footer>© 2026 Areej Academy <span>Virtual Islamic Academy</span></footer></main><script src="{{ url_for('static',filename='js/script.js') }}"></script><script>
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("/service-worker.js").catch(error => console.warn("AREEJ offline support:", error));
+  });
+}
+</script>
+</body></html>
