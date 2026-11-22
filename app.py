@@ -485,7 +485,7 @@ def portal_contacts(conn, role):
         return conn.execute(
             """SELECT DISTINCT u.id, u.display_name, u.role
                FROM users u
-               WHERE u.id != ? AND (
+               WHERE u.id != ? AND u.is_active=TRUE AND (
                    u.role IN ('admin', 'staff')
                    OR (
                        u.role = 'student'
@@ -503,7 +503,7 @@ def portal_contacts(conn, role):
         ).fetchall()
 
     return conn.execute(
-        "SELECT id, display_name, role FROM users WHERE id != ? ORDER BY role, display_name",
+        "SELECT id, display_name, role FROM users WHERE id != ? AND is_active=TRUE ORDER BY role, display_name",
         (session["user_id"],),
     ).fetchall()
 
