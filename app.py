@@ -132,7 +132,8 @@ def init_db():
                 WHERE table_schema='areej_app' AND table_name='messages' AND column_name='read_at'""").fetchone()
             preferences_table = conn.execute("SELECT to_regclass('areej_app.user_preferences') AS table_name").fetchone()
             if not message_receipts or not preferences_table or preferences_table["table_name"] is None:
-                raise RuntimeError("Apply migration 005_areej_messaging_settings.sql before deploying this version.")        finally:
+                raise RuntimeError("Apply migration 005_areej_messaging_settings.sql before deploying this version.")
+        finally:
             conn.close()
         return
 
