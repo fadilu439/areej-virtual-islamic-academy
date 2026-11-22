@@ -237,3 +237,78 @@ def test_local_development_can_generate_session_secret(monkeypatch):
     monkeypatch.delenv("RENDER", raising=False)
     monkeypatch.delenv("AREEJ_SECRET_KEY", raising=False)
     assert len(app_module.configured_secret_key()) >= 32
+
+
+def test_admin_can_edit_account_without_changing_password_unless_provided(client):
+    with client.session_transaction() as session:
+        session.update(user_id=1, username="admin-test", role="admin", csrf_token="test-csrf")
+    with app_module.app.app_context():
+        conn=app_module.db()
+        conn.execute("INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+                     ("edit-student", generate_password_hash("original password"), "student", "Old Name"))
+        conn.commit()
+        account_id=conn.execute("SELECT id FROM users WHERE username='edit-student'").fetchone()["id"]
+    response=client.post(f"/admin/accounts/{account_id}/update", data={
+        "csrf_token":"test-csrf", "display_name":"Corrected Name", "username":"corrected-student", "new_password":""
+    })
+    assert response.status_code==302
+    with app_module.app.app_context():
+        user=app_module.db().execute("SELECT * FROM users WHERE id=?", (account_id,)).fetchone()
+        from werkzeug.security import check_password_hash
+        assert user["display_name"]=="Corrected Name"
+        assert user["username"]=="corrected-student"
+        assert check_password_hash(user["password_hash"], "original password")
+
+
+def test_admin_can_deactivate_and_restore_account_without_deleting_it(client):
+    with client.session_transaction() as session:
+        session.update(user_id=1, username="admin-test", role="admin", csrf_token="test-csrf")
+    with app_module.app.app_context():
+        conn=app_module.db()
+        conn.execute("INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+                     ("switch-user", generate_password_hash("password 1234"), "student", "Switch User"))
+        conn.commit()
+        account_id=conn.execute("SELECT id FROM users WHERE username='switch-user'").fetchone()["id"]
+    assert client.post(f"/admin/accounts/{account_id}/toggle", data={"csrf_token":"test-csrf"}).status_code==302
+    with app_module.app.app_context():
+        row=app_module.db().execute("SELECT is_active FROM users WHERE id=?", (account_id,)).fetchone()
+        assert row["is_active"] in (0, False)
+    assert client.post(f"/admin/accounts/{account_id}/toggle", data={"csrf_token":"test-csrf"}).status_code==302
+    with app_module.app.app_context():
+        row=app_module.db().execute("SELECT is_active FROM users WHERE id=?", (account_id,)).fetchone()
+        assert row["is_active"] in (1, True)
+
+
+def test_admin_cannot_deactivate_last_admin_or_self(client):
+    with client.session_transaction() as session:
+        session.update(user_id=1, username="admin-test", role="admin", csrf_token="test-csrf")
+    own=client.post("/admin/accounts/1/toggle", data={"csrf_token":"test-csrf"})
+    assert own.status_code==302
+    with app_module.app.app_context():
+        active=app_module.db().execute("SELECT is_active FROM users WHERE id=1").fetchone()["is_active"]
+        assert active in (1, True)
+
+
+def test_staff_can_edit_only_own_class_and_assignment(client):
+    with app_module.app.app_context():
+        conn=app_module.db()
+        staff_id=conn.execute("INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+            ("staff-owner", generate_password_hash("staff password 123"), "staff", "Staff Owner")).lastrowid
+        other_staff=conn.execute("INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+            ("staff-other", generate_password_hash("other password 123"), "staff", "Other Staff")).lastrowid
+        own_class=conn.execute("INSERT INTO classes(teacher_id,name) VALUES(?,?)", (staff_id,"Own Class")).lastrowid
+        other_class=conn.execute("INSERT INTO classes(teacher_id,name) VALUES(?,?)", (other_staff,"Other Class")).lastrowid
+        own_assignment=conn.execute("INSERT INTO assignments(class_id,title) VALUES(?,?)", (own_class,"Own Assignment")).lastrowid
+        other_assignment=conn.execute("INSERT INTO assignments(class_id,title) VALUES(?,?)", (other_class,"Other Assignment")).lastrowid
+        conn.commit()
+    with client.session_transaction() as session:
+        session.update(user_id=staff_id, username="staff-owner", role="staff", csrf_token="staff-csrf")
+    ok=client.post("/staff/work", data={"csrf_token":"staff-csrf","action":"update_assignment",
+        "assignment_id":str(own_assignment),"title":"Corrected Assignment","instructions":"Updated","due_date":""})
+    assert ok.status_code==302
+    denied=client.post("/staff/work", data={"csrf_token":"staff-csrf","action":"update_assignment",
+        "assignment_id":str(other_assignment),"title":"Unauthorized","instructions":"","due_date":""})
+    assert denied.status_code==403
+    with app_module.app.app_context():
+        title=app_module.db().execute("SELECT title FROM assignments WHERE id=?", (own_assignment,)).fetchone()["title"]
+        assert title=="Corrected Assignment"

@@ -15,6 +15,16 @@
   <article><small>Accounts</small><strong>{{ user_counts.get('student',0) + user_counts.get('staff',0) + user_counts.get('parent',0) }}</strong><p>Registered users</p></article>
 </section>
 
+
+<section class="panel" id="accounts">
+  <div class="panel-head"><div><small>ACCOUNT CONTROL</small><h2>Manage All Accounts</h2><p class="muted">Edit names, usernames and passwords, or deactivate and restore accounts without deleting their academic history.</p></div><span class="pill">{{ accounts|length }} accounts</span></div>
+  {% if accounts %}<div class="table-wrap"><table><thead><tr><th>User</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody>
+  {% for account in accounts %}<tr><td><b>{{ account.display_name }}</b><br><small>@{{ account.username }}</small></td><td>{{ account.role|title }}</td><td>{{ 'Active' if account.is_active else 'Deactivated' }}</td><td>
+    <details class="portal-details"><summary>Edit account</summary><form class="course-form" method="post" action="{{ url_for('admin_update_account', user_id=account.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label>Full name</label><input name="display_name" value="{{ account.display_name }}" maxlength="100" required><label>Username</label><input name="username" value="{{ account.username }}" maxlength="60" required><label>New password (leave blank to keep current)</label><input name="new_password" type="password" minlength="8" autocomplete="new-password"><button class="btn primary" type="submit">Save Changes</button></form></details>
+    <form method="post" action="{{ url_for('admin_toggle_account', user_id=account.id) }}" onsubmit="return confirm('{{ 'Restore' if not account.is_active else 'Deactivate' }} this account? Existing records will be preserved.')"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn small {{ 'primary' if not account.is_active else '' }}" type="submit" {% if account.id == current_user_id %}disabled title="You cannot deactivate your own account"{% endif %}>{{ 'Restore' if not account.is_active else 'Deactivate' }}</button></form>
+  </td></tr>{% endfor %}</tbody></table></div>{% else %}<div class="empty compact"><p>No accounts found.</p></div>{% endif %}
+</section>
+
 <section class="panel" id="courses">
   <div class="panel-head">
     <div>
@@ -43,10 +53,8 @@
             <td>{{ c.description or 'No description' }}</td>
             <td>{{ c.created_at }}</td>
             <td>
-              <form method="post" action="{{ url_for('delete_course',course_id=c.id) }}" onsubmit="return confirm('Delete this course?')">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
-                <button class="delete" type="submit">Delete</button>
-              </form>
+              <details class="portal-details"><summary>Edit</summary><form class="course-form" method="post" action="{{ url_for('admin_update_course', course_id=c.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label>Course name</label><input name="name" value="{{ c.name }}" required maxlength="120"><label>Description</label><input name="description" value="{{ c.description or '' }}" maxlength="300"><button class="btn primary" type="submit">Save</button></form></details>
+              <form method="post" action="{{ url_for('delete_course',course_id=c.id) }}" onsubmit="return confirm('Delete this course?')"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="delete" type="submit">Delete</button></form>
             </td>
           </tr>
           {% endfor %}
@@ -141,10 +149,40 @@
 
 <section class="panel" id="admissions">
   <small>ADMISSIONS & CLASS ENROLMENT</small><h2>Manage Admissions and Family Links</h2>
-  {% if enrollments %}<div class="table-wrap"><table><thead><tr><th>Applicant</th><th>Programme</th><th>Status</th><th>Update</th></tr></thead><tbody>{% for e in enrollments %}<tr><td>{{ e.student_name }}</td><td>{{ e.programme }}</td><td>{{ e.status }}</td><td><form method="post" action="{{ url_for('admin_link_student') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="approve_enrollment"><input type="hidden" name="enrollment_id" value="{{ e.id }}"><select name="status"><option>Approved</option><option>Pending review</option><option>Contact required</option></select><button class="btn small">Update</button></form></td></tr>{% endfor %}</tbody></table></div>{% endif %}
-  <div class="columns"><form class="course-form" method="post" action="{{ url_for('admin_link_student') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="link_parent"><h3>Link parent to student</h3><select name="parent_id" required>{% for p in parent_accounts %}<option value="{{ p.id }}">{{ p.display_name }}</option>{% endfor %}</select><select name="student_id" required>{% for s in students %}<option value="{{ s.id }}">{{ s.display_name }}</option>{% endfor %}</select><button class="btn primary">Link accounts</button></form>
-  <form class="course-form" method="post" action="{{ url_for('admin_link_student') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="action" value="enroll_student"><h3>Enrol student in class</h3><select name="student_id" required>{% for s in students %}<option value="{{ s.id }}">{{ s.display_name }}</option>{% endfor %}</select><select name="class_id" required>{% for c in classes %}<option value="{{ c.id }}">{{ c.name }}{% if c.teacher_name %} — {{ c.teacher_name }}{% endif %}</option>{% endfor %}</select><button class="btn primary">Enrol student</button></form></div>
+  {% if enrollments %}<div class="table-wrap"><table><thead><tr><th>Applicant</th><th>Programme</th><th>Status</th><th>Management</th></tr></thead><tbody>
+  {% for e in enrollments %}<tr><td><b>{{ e.student_name }}</b><br><small>{{ e.contact }}</small></td><td>{{ e.programme }}</td><td>{{ e.status }}</td><td>
+    <details class="portal-details"><summary>Edit enquiry</summary><form class="course-form" method="post" action="{{ url_for('admin_update_admission', enrollment_id=e.id) }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+      <label>Student name</label><input name="student_name" value="{{ e.student_name }}" maxlength="120" required>
+      <label>Programme</label><input name="programme" value="{{ e.programme }}" maxlength="120" required>
+      <label>Parent / guardian</label><input name="guardian_name" value="{{ e.guardian_name or '' }}" maxlength="120">
+      <label>Contact</label><input name="contact" value="{{ e.contact }}" maxlength="180" required>
+      <label>Location</label><input name="location" value="{{ e.location or '' }}" maxlength="180">
+      <label>Status</label><select name="status">
+        <option {% if e.status == 'Pending review' %}selected{% endif %}>Pending review</option>
+        <option {% if e.status == 'Approved' %}selected{% endif %}>Approved</option>
+        <option {% if e.status == 'Contact required' %}selected{% endif %}>Contact required</option>
+        <option {% if e.status == 'Rejected' %}selected{% endif %}>Rejected</option>
+      </select><button class="btn primary">Save Enquiry</button>
+    </form></details>
+    <form method="post" action="{{ url_for('admin_delete_admission', enrollment_id=e.id) }}" onsubmit="return confirm('Permanently delete this admission enquiry? This cannot be undone.')">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="delete">Delete Enquiry</button>
+    </form>
+  </td></tr>{% endfor %}</tbody></table></div>
+  {% else %}<div class="empty compact"><p>No admission enquiries have been submitted.</p></div>{% endif %}
+
+<div class="columns">
+<section class="panel" id="manage-classes"><small>ACADEMIC MANAGEMENT</small><h2>Manage All Classes</h2>
+{% if classes %}<div class="mini-list">{% for c in classes %}<div><strong>{{ c.name }}</strong><span>{{ c.teacher_name or 'Unassigned teacher' }} · {{ c.schedule or 'Schedule not set' }}</span>
+<details class="portal-details"><summary>Edit class</summary><form class="course-form" method="post" action="{{ url_for('admin_update_class', class_id=c.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label>Class name</label><input name="name" value="{{ c.name }}" required><label>Schedule</label><input name="schedule" value="{{ c.schedule or '' }}"><label>Meeting URL</label><input name="meeting_url" type="url" value="{{ c.meeting_url or '' }}"><label>Channel</label><input name="channel" value="{{ c.channel or 'General' }}"><label>Description</label><textarea name="description">{{ c.description or '' }}</textarea><button class="btn primary">Save Class</button></form></details>
+<form method="post" action="{{ url_for('admin_delete_class', class_id=c.id) }}" onsubmit="return confirm('Delete this class if it has no linked academic records?')"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="delete">Delete Class</button></form></div>{% endfor %}</div>{% else %}<div class="empty compact"><p>No classes available.</p></div>{% endif %}
 </section>
+<section class="panel" id="manage-assignments"><small>ACADEMIC MANAGEMENT</small><h2>Manage All Assignments</h2>
+{% if admin_assignments %}<div class="mini-list">{% for a in admin_assignments %}<div><strong>{{ a.title }}</strong><span>{{ a.class_name }} · {{ a.teacher_name or 'Unknown staff' }} · Due {{ a.due_date or 'not set' }}</span>
+<details class="portal-details"><summary>Edit assignment</summary><form class="course-form" method="post" action="{{ url_for('admin_update_assignment', assignment_id=a.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label>Title</label><input name="title" value="{{ a.title }}" required><label>Instructions</label><textarea name="instructions">{{ a.instructions or '' }}</textarea><label>Due date</label><input type="date" name="due_date" value="{{ a.due_date or '' }}"><button class="btn primary">Save Assignment</button></form></details>
+<form method="post" action="{{ url_for('admin_delete_assignment', assignment_id=a.id) }}" onsubmit="return confirm('Delete this assignment only if no student has submitted it?')"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="delete">Delete Assignment</button></form></div>{% endfor %}</div>{% else %}<div class="empty compact"><p>No assignments available.</p></div>{% endif %}
+</section></div>
+
 <section class="panel" id="messages">
   <small>COMMUNICATION</small>
   <h2>Send a Message</h2>
