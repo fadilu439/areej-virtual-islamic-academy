@@ -631,7 +631,7 @@ def admin_dashboard():
     pending_enrollments = conn.execute(
         "SELECT COUNT(*) AS n FROM enrollments WHERE status = 'Pending review'"
     ).fetchone()["n"]
-    enrollments = conn.execute("SELECT * FROM enrollments ORDER BY created_at DESC LIMIT 6").fetchall()
+    enrollments = conn.execute("SELECT * FROM enrollments ORDER BY created_at DESC").fetchall()
     user_counts = {r["role"]:r["n"] for r in conn.execute(
         "SELECT role, COUNT(*) AS n FROM users GROUP BY role").fetchall()}
     students = conn.execute("SELECT id, username, display_name FROM users WHERE role='student' AND is_active=TRUE ORDER BY display_name").fetchall()
@@ -935,6 +935,40 @@ def submit_assignment():
     db().commit()
     flash("Assignment submitted successfully.", "success")
     return redirect(url_for("student_dashboard", _anchor="assignments"))
+
+
+@app.route("/admin/admissions/<int:enrollment_id>/update", methods=["POST"])
+@roles("admin")
+def admin_update_admission(enrollment_id):
+    conn = db()
+    student_name = request.form.get("student_name", "").strip()
+    programme = request.form.get("programme", "").strip()
+    guardian_name = request.form.get("guardian_name", "").strip()
+    contact = request.form.get("contact", "").strip()
+    location = request.form.get("location", "").strip()
+    status = request.form.get("status", "Pending review").strip()
+    allowed_statuses = {"Pending review", "Approved", "Contact required", "Rejected"}
+    if not student_name or not programme or not contact or status not in allowed_statuses:
+        flash("Enter the applicant name, programme, contact and a valid admission status.", "error")
+    else:
+        result = conn.execute(
+            """UPDATE enrollments SET student_name=?, programme=?, guardian_name=?,
+               contact=?, location=?, status=? WHERE id=?""",
+            (student_name, programme, guardian_name, contact, location, status, enrollment_id)
+        )
+        conn.commit()
+        flash("Admission record updated." if result.rowcount else "Admission record was not found.",
+              "success" if result.rowcount else "error")
+    return redirect(url_for("admin_dashboard", _anchor="admissions"))
+
+@app.route("/admin/admissions/<int:enrollment_id>/delete", methods=["POST"])
+@roles("admin")
+def admin_delete_admission(enrollment_id):
+    result = db().execute("DELETE FROM enrollments WHERE id=?", (enrollment_id,))
+    db().commit()
+    flash("Admission enquiry deleted." if result.rowcount else "Admission enquiry was not found.",
+          "success" if result.rowcount else "error")
+    return redirect(url_for("admin_dashboard", _anchor="admissions"))
 
 @app.route("/admin/link", methods=["POST"])
 @roles("admin")
