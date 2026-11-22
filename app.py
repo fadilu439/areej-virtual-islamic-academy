@@ -717,9 +717,15 @@ def admin_update_course(course_id):
 @app.route("/admin/courses/<int:course_id>/delete", methods=["POST"])
 @roles("admin")
 def delete_course(course_id):
-    db().execute("DELETE FROM courses WHERE id=?", (course_id,)); db().commit()
-    flash("Course deleted if it existed.", "success")
-    return redirect(url_for("admin_dashboard"))
+    conn = db()
+    linked = conn.execute("SELECT COUNT(*) AS n FROM classes WHERE course_id=?", (course_id,)).fetchone()["n"]
+    if linked:
+        flash("This course is used by one or more classes. Reassign those classes before deleting the course.", "error")
+    else:
+        result = conn.execute("DELETE FROM courses WHERE id=?", (course_id,))
+        conn.commit()
+        flash("Course deleted." if result.rowcount else "Course was not found.", "success" if result.rowcount else "error")
+    return redirect(url_for("admin_dashboard", _anchor="courses"))
 
 @app.route("/admin/classes/<int:class_id>/update", methods=["POST"])
 @roles("admin")
@@ -739,7 +745,7 @@ def admin_update_class(class_id):
 @roles("admin")
 def admin_delete_class(class_id):
     conn = db()
-    dependencies = conn.execute("SELECT (SELECT COUNT(*) FROM enrollments_academic WHERE class_id=?)+(SELECT COUNT(*) FROM attendance WHERE class_id=?)+(SELECT COUNT(*) FROM assignments WHERE class_id=?) AS n", (class_id, class_id, class_id)).fetchone()["n"]
+    dependencies = conn.execute("SELECT (SELECT COUNT(*) FROM enrollments_academic WHERE class_id=?)+(SELECT COUNT(*) FROM attendance WHERE class_id=?)+(SELECT COUNT(*) FROM assignments WHERE class_id=?)+(SELECT COUNT(*) FROM results WHERE class_id=?)+(SELECT COUNT(*) FROM learning_materials WHERE class_id=?) AS n", (class_id, class_id, class_id, class_id, class_id)).fetchone()["n"]
     if dependencies:
         flash("This class has linked enrolments, attendance or assignments. Remove or reassign those records before deleting it.", "error")
     else:
@@ -822,7 +828,7 @@ def staff_work():
         owned = conn.execute("SELECT id FROM classes WHERE id=? AND teacher_id=?", (class_id, teacher_id)).fetchone()
         if not owned:
             abort(403)
-        dependencies = conn.execute("SELECT (SELECT COUNT(*) FROM enrollments_academic WHERE class_id=?)+(SELECT COUNT(*) FROM attendance WHERE class_id=?)+(SELECT COUNT(*) FROM assignments WHERE class_id=?) AS n", (class_id, class_id, class_id)).fetchone()["n"]
+        dependencies = conn.execute("SELECT (SELECT COUNT(*) FROM enrollments_academic WHERE class_id=?)+(SELECT COUNT(*) FROM attendance WHERE class_id=?)+(SELECT COUNT(*) FROM assignments WHERE class_id=?)+(SELECT COUNT(*) FROM results WHERE class_id=?)+(SELECT COUNT(*) FROM learning_materials WHERE class_id=?) AS n", (class_id, class_id, class_id, class_id, class_id)).fetchone()["n"]
         if dependencies:
             flash("This class has linked student or academic records, so it cannot be deleted yet.", "error")
         else:
