@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Settings | Areej Academy{% endblock %}
+{% block heading %}Settings{% endblock %}
+{% block content %}
+<section class="settings-panel"><small class="eyebrow">PERSONAL PREFERENCES</small><h2>Make AREEJ work the way you prefer.</h2><p class="settings-intro">These settings apply to your account only. Your changes do not affect other students, parents or staff.</p>
+  <form method="post" action="{{ url_for('settings') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+    <div class="settings-group"><h3>Appearance</h3><label class="settings-option"><span><strong>Theme</strong><small>Choose the look of your portal.</small></span><select name="theme"><option value="light" {% if preferences.theme == 'light' %}selected{% endif %}>Light</option><option value="dark" {% if preferences.theme == 'dark' %}selected{% endif %}>Dark</option><option value="system" {% if preferences.theme == 'system' %}selected{% endif %}>Use device setting</option></select></label></div>
+    <div class="settings-group"><h3>Messages & Notifications</h3><label class="settings-option"><span><strong>Message alerts</strong><small>Show unread message badges in your portal menu.</small></span><input type="checkbox" name="message_notifications" {% if preferences.message_notifications %}checked{% endif %}></label><label class="settings-option"><span><strong>Read receipts</strong><small>Let the other person see when you have opened their messages.</small></span><input type="checkbox" name="read_receipts" {% if preferences.read_receipts %}checked{% endif %}></label></div>
+    <div class="settings-group"><h3>Account</h3><div class="settings-option"><span><strong>{{ current_user.display_name }}</strong><small>{{ current_user.role|title }} account · Contact your administrator to change account details.</small></span><a href="{{ url_for('portal_home') }}">Portal</a></div></div>
+    <button class="btn primary" type="submit">Save Settings</button>
+  </form>
+</section>
+{% endblock %}
