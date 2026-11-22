@@ -342,7 +342,7 @@ def test_settings_persist_theme_and_privacy_preferences(client):
     with client.session_transaction() as session:
         session.update(user_id=admin_id, username="admin-test", role="admin", csrf_token="settings-csrf")
     assert client.get("/settings").status_code == 200
-    response = client.post("/settings", data={"csrf_token": "settings-csrf", "theme": "dark", "message_notifications": "on"})
+    response = client.post("/settings", data={"csrf_token": "settings-csrf", "theme": "dark", "message_notifications": "on", "display_name": "Test Admin"})
     assert response.status_code == 302
     with app_module.app.app_context():
         prefs = app_module.db().execute("SELECT theme, message_notifications, read_receipts FROM user_preferences WHERE user_id=?", (admin_id,)).fetchone()
