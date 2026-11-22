@@ -620,6 +620,8 @@ def send_message():
         recipient_id = 0
     allowed_ids = {int(person["id"]) for person in portal_contacts(db(), session["role"])}
     recipient = db().execute("SELECT id FROM users WHERE id=? AND is_active=TRUE", (recipient_id,)).fetchone()
+    if not recipient or recipient_id not in allowed_ids or recipient_id == session["user_id"]:
+        abort(403)
     upload = request.files.get("attachment")
     attachment_name = attachment_path = attachment_type = ""
     if upload and upload.filename:
@@ -630,8 +632,6 @@ def send_message():
             return redirect(url_for("messages_inbox"))
         attachment_name = secure_filename(upload.filename) or "attachment"
         attachment_type = upload.content_type or "application/octet-stream"
-    if not recipient or recipient_id not in allowed_ids or recipient_id == session["user_id"]:
-        abort(403)
     if not body and not attachment_path:
         flash("Write a message or attach a file before sending.", "error")
         return redirect(url_for("message_conversation", contact_id=recipient_id))
