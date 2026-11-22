@@ -361,3 +361,41 @@ def test_staff_cannot_message_unrelated_student(client):
         session.update(user_id=staff_id, username="staff-private", role="staff", csrf_token="staff-csrf")
     response = client.post("/messages/send", data={"csrf_token": "staff-csrf", "recipient_id": str(unrelated_id), "body": "Hello"})
     assert response.status_code == 403
+
+
+
+def test_settings_password_change_requires_current_password_and_updates_hash(client):
+    with app_module.app.app_context():
+        admin_id = app_module.db().execute("SELECT id FROM users WHERE username='admin-test'").fetchone()["id"]
+    with client.session_transaction() as session:
+        session.update(user_id=admin_id, username="admin-test", role="admin", csrf_token="password-csrf")
+    response = client.post("/settings", data={
+        "csrf_token": "password-csrf", "display_name": "Test Admin",
+        "theme": "light", "current_password": "correct horse battery staple",
+        "new_password": "new-secure-password", "confirm_password": "new-secure-password",
+        "message_notifications": "on", "read_receipts": "on",
+    })
+    assert response.status_code == 302
+    with app_module.app.app_context():
+        stored = app_module.db().execute("SELECT password_hash FROM users WHERE id=?", (admin_id,)).fetchone()
+        from werkzeug.security import check_password_hash
+        assert check_password_hash(stored["password_hash"], "new-secure-password")
+
+
+def test_disabling_read_receipts_keeps_sender_from_seeing_read_tick(client):
+    with app_module.app.app_context():
+        conn = app_module.db()
+        admin_id = conn.execute("SELECT id FROM users WHERE username='admin-test'").fetchone()["id"]
+        student_id = conn.execute("SELECT id FROM users WHERE username='student-test'").fetchone()["id"]
+        conn.execute("INSERT INTO user_preferences(user_id,theme,message_notifications,read_receipts) VALUES(?,?,?,?)",
+                     (admin_id, "light", 1, 0))
+        conn.execute("INSERT INTO messages(sender_id,recipient_id,body) VALUES(?,?,?)",
+                     (student_id, admin_id, "Private note"))
+        conn.commit()
+    with client.session_transaction() as session:
+        session.update(user_id=admin_id, username="admin-test", role="admin", csrf_token="receipt-csrf")
+    response = client.get(f"/messages/{student_id}")
+    assert response.status_code == 200
+    with app_module.app.app_context():
+        state = app_module.db().execute("SELECT is_read, read_at FROM messages").fetchone()
+        assert state["is_read"] == 1 and state["read_at"] is None
