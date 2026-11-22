@@ -1,4 +1,4 @@
-const CACHE_NAME = "areej-static-v1";
+const CACHE_NAME = "areej-static-v2";
 const STATIC_ASSETS = [
   "/static/css/public.css",
   "/static/css/style.css",
