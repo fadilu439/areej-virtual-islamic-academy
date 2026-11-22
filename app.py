@@ -529,8 +529,9 @@ def messages_inbox():
         unread = conn.execute("SELECT COUNT(*) AS n FROM messages WHERE sender_id=? AND recipient_id=? AND is_read=0", (contact_id, user_id)).fetchone()["n"]
         contacts.append({"id": contact_id, "display_name": person["display_name"], "role": person["role"],
             "last_message": ((latest["body"] or "").strip() or (latest["attachment_name"] or "Attachment")) if latest else "Start a conversation",
-            "last_created_at": latest["created_at"] if latest else "", "unread_count": unread})
-    contacts.sort(key=lambda item: (item["last_created_at"] or "", item["display_name"].casefold()), reverse=True)
+            "last_created_at": latest["created_at"] if latest else "", "unread_count": unread,
+            "has_history": bool(latest)})
+    contacts.sort(key=lambda item: (bool(item["has_history"]), item["last_created_at"] or "", item["display_name"].casefold()), reverse=True)
     return render_template("messages.html", contacts=contacts)
 
 
@@ -575,11 +576,34 @@ def settings():
             abort(400)
         notifications = 1 if request.form.get("message_notifications") == "on" else 0
         read_receipts = 1 if request.form.get("read_receipts") == "on" else 0
+        display_name = request.form.get("display_name", "").strip()
+        current_password = request.form.get("current_password", "")
+        new_password = request.form.get("new_password", "")
+        confirm_password = request.form.get("confirm_password", "")
+        account = conn.execute("SELECT password_hash FROM users WHERE id=?", (user_id,)).fetchone()
+        if not display_name:
+            flash("Your display name cannot be empty.", "error")
+            return redirect(url_for("settings"))
+        if new_password:
+            if not current_password or not check_password_hash(account["password_hash"], current_password):
+                flash("Enter your current password correctly to change it.", "error")
+                return redirect(url_for("settings"))
+            if len(new_password) < 8:
+                flash("Your new password must contain at least 8 characters.", "error")
+                return redirect(url_for("settings"))
+            if new_password != confirm_password:
+                flash("The new password and confirmation do not match.", "error")
+                return redirect(url_for("settings"))
+            conn.execute("UPDATE users SET display_name=?, password_hash=? WHERE id=?",
+                         (display_name, generate_password_hash(new_password), user_id))
+        else:
+            conn.execute("UPDATE users SET display_name=? WHERE id=?", (display_name, user_id))
         conn.execute("""INSERT INTO user_preferences(user_id,theme,message_notifications,read_receipts)
             VALUES(?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET theme=excluded.theme,
             message_notifications=excluded.message_notifications, read_receipts=excluded.read_receipts,
             updated_at=CURRENT_TIMESTAMP""", (user_id, theme, notifications, read_receipts))
         conn.commit()
+        session["display_name"] = display_name
         flash("Your settings have been saved.", "success")
         return redirect(url_for("settings"))
     return render_template("settings.html", preferences=user_preferences_for(conn, user_id))
