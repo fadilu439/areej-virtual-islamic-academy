@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Chat with {{ contact.display_name }} | Areej Academy{% endblock %}
+{% block heading %}Private Chat{% endblock %}
+{% block content %}
+<div class="messenger-shell">
+  <section class="chat-list-panel"><div class="chat-list-head"><a class="chat-back" href="{{ url_for('messages_inbox') }}">← All chats</a><h2>Your Contacts</h2></div>
+    {% for person in recipients %}<a class="chat-contact{% if person.id == contact.id %} active{% endif %}" href="{{ url_for('message_conversation', contact_id=person.id) }}"><span class="chat-avatar">{{ person.display_name[0]|upper }}</span><span class="chat-contact-copy"><span class="chat-contact-top"><strong>{{ person.display_name }}</strong></span><span class="chat-contact-bottom">{{ person.role|title }}</span></span></a>{% endfor %}
+  </section>
+  <section class="chat-main-panel">
+    <div class="chat-main-head"><span class="chat-avatar">{{ contact.display_name[0]|upper }}</span><div><h2>{{ contact.display_name }}</h2><p>{{ contact.role|title }} · Private conversation</p></div><a class="chat-back" style="margin-left:auto" href="{{ url_for('messages_inbox') }}">All chats</a></div>
+    <div class="chat-history" id="chatHistory"><span class="chat-day-label">Conversation history</span>
+      {% for message in conversation_messages %}<article class="chat-bubble{% if message.sender_id == current_user_id %} mine{% else %} theirs{% endif %}">
+        {% if message.body %}<p>{{ message.body }}</p>{% endif %}
+        {% if message.attachment_path %}{% if message.attachment_type.startswith('audio/') %}<audio controls src="{{ url_for('message_attachment', filename=message.attachment_path) }}"></audio>{% else %}<a href="{{ url_for('message_attachment', filename=message.attachment_path) }}">📎 {{ message.attachment_name }}</a>{% endif %}{% endif %}
+        <div class="chat-meta"><span>{{ message.created_at }}</span>{% if message.sender_id == current_user_id %}{% if message.read_at %}<span class="read-ticks read" title="Read">✓✓</span>{% elif message.delivered_at %}<span class="read-ticks" title="Delivered">✓✓</span>{% else %}<span class="read-ticks" title="Sent">✓</span>{% endif %}{% endif %}</div>
+      </article>{% else %}<div class="chat-empty"><h3>Say hello</h3><p>Your first private message to {{ contact.display_name }} will start here.</p></div>{% endfor %}
+    </div>
+    <div class="chat-composer"><form method="post" action="{{ url_for('send_message') }}" enctype="multipart/form-data"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="recipient_id" value="{{ contact.id }}"><textarea name="body" rows="1" placeholder="Type a message..." aria-label="Message text"></textarea><input type="file" name="attachment" accept="image/*,.pdf,.txt,.doc,.docx,audio/*" aria-label="Attach a file"><button class="btn primary" type="submit">Send</button></form></div>
+  </section>
+</div>
+<script>document.addEventListener("DOMContentLoaded",function(){const history=document.getElementById("chatHistory");if(history)history.scrollTop=history.scrollHeight;});</script>
+{% endblock %}
