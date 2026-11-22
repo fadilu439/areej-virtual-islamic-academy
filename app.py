@@ -574,8 +574,8 @@ def settings():
         theme = request.form.get("theme", "light")
         if theme not in {"light", "dark", "system"}:
             abort(400)
-        notifications = 1 if request.form.get("message_notifications") == "on" else 0
-        read_receipts = 1 if request.form.get("read_receipts") == "on" else 0
+        notifications = request.form.get("message_notifications") == "on"
+        read_receipts = request.form.get("read_receipts") == "on"
         display_name = request.form.get("display_name", "").strip()
         current_password = request.form.get("current_password", "")
         new_password = request.form.get("new_password", "")
