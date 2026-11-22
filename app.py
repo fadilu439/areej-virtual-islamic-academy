@@ -280,6 +280,11 @@ def roles(*allowed):
         def wrapped(*args, **kwargs):
             if "user_id" not in session: return redirect(url_for("login"))
             if session.get("role") not in allowed: abort(403)
+            active_user = db().execute("SELECT is_active FROM users WHERE id=?", (session["user_id"],)).fetchone()
+            if not active_user or not active_user["is_active"]:
+                session.clear()
+                flash("Your account is inactive. Please contact the academy administrator.", "error")
+                return redirect(url_for("login"))
             return fn(*args, **kwargs)
         return wrapped
     return deco
