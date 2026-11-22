@@ -128,7 +128,11 @@ def init_db():
                 WHERE table_schema='areej_app' AND table_name='users' AND column_name='is_active'""").fetchone()
             if not active_column:
                 raise RuntimeError("Supabase users.is_active is missing. Apply migration 004_areej_account_management.sql before deploying this version.")
-        finally:
+            message_receipts = conn.execute("""SELECT 1 FROM information_schema.columns
+                WHERE table_schema='areej_app' AND table_name='messages' AND column_name='read_at'""").fetchone()
+            preferences_table = conn.execute("SELECT to_regclass('areej_app.user_preferences') AS table_name").fetchone()
+            if not message_receipts or not preferences_table or preferences_table["table_name"] is None:
+                raise RuntimeError("Apply migration 005_areej_messaging_settings.sql before deploying this version.")        finally:
             conn.close()
         return
 
@@ -155,10 +159,17 @@ def init_db():
     );
     CREATE TABLE IF NOT EXISTS messages (
       id INTEGER PRIMARY KEY, sender_id INTEGER NOT NULL, recipient_id INTEGER NOT NULL,
-      body TEXT DEFAULT '', is_read INTEGER DEFAULT 0, attachment_name TEXT DEFAULT '',
-      attachment_path TEXT DEFAULT '', attachment_type TEXT DEFAULT '',
+      body TEXT DEFAULT '', is_read INTEGER DEFAULT 0, read_at TEXT, delivered_at TEXT,
+      attachment_name TEXT DEFAULT '', attachment_path TEXT DEFAULT '', attachment_type TEXT DEFAULT '',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       FOREIGN KEY(sender_id) REFERENCES users(id), FOREIGN KEY(recipient_id) REFERENCES users(id)
+    );
+    CREATE TABLE IF NOT EXISTS user_preferences (
+      user_id INTEGER PRIMARY KEY, theme TEXT NOT NULL DEFAULT 'light',
+      message_notifications INTEGER NOT NULL DEFAULT 1,
+      read_receipts INTEGER NOT NULL DEFAULT 1,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY(user_id) REFERENCES users(id)
     );
     CREATE TABLE IF NOT EXISTS classes (
       id INTEGER PRIMARY KEY, course_id INTEGER, teacher_id INTEGER, name TEXT NOT NULL,
@@ -205,8 +216,9 @@ def init_db():
         conn.execute("ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
     message_columns = {row[1] for row in conn.execute("PRAGMA table_info(messages)")}
     for column, definition in {
-        "is_read": "INTEGER DEFAULT 0", "attachment_name": "TEXT DEFAULT ''",
-        "attachment_path": "TEXT DEFAULT ''", "attachment_type": "TEXT DEFAULT ''"
+        "is_read": "INTEGER DEFAULT 0", "read_at": "TEXT", "delivered_at": "TEXT",
+        "attachment_name": "TEXT DEFAULT ''", "attachment_path": "TEXT DEFAULT ''",
+        "attachment_type": "TEXT DEFAULT ''"
     }.items():
         if column not in message_columns:
             conn.execute(f"ALTER TABLE messages ADD COLUMN {column} {definition}")
@@ -255,17 +267,30 @@ def init_db():
     conn.commit()
     conn.close()
 
+def user_preferences_for(conn, user_id):
+    row = conn.execute("SELECT theme, message_notifications, read_receipts FROM user_preferences WHERE user_id=?", (user_id,)).fetchone()
+    if not row:
+        return {"theme": "light", "message_notifications": 1, "read_receipts": 1}
+    return dict(row)
+
+
 @app.context_processor
 def context_user():
     unread_count = 0
+    preferences = {"theme": "light", "message_notifications": 1, "read_receipts": 1}
     if session.get("user_id"):
-        unread_count = db().execute(
+        conn = db()
+        unread_count = conn.execute(
             "SELECT COUNT(*) AS n FROM messages WHERE recipient_id=? AND is_read=0",
             (session["user_id"],),
         ).fetchone()["n"]
+        preferences = user_preferences_for(conn, session["user_id"])
+        if not preferences["message_notifications"]:
+            unread_count = 0
     return {
         "csrf_token": session.get("csrf_token", ""),
         "unread_message_count": unread_count,
+        "user_preferences": preferences,
         "current_user_id": session.get("user_id"),
         "current_user": {
             "username": session.get("username", ""),
@@ -484,17 +509,92 @@ def portal_contacts(conn, role):
 @app.route("/messages/open", methods=["POST"])
 @roles("admin","staff","student","parent")
 def open_messages():
-    db().execute("UPDATE messages SET is_read=1 WHERE recipient_id=? AND is_read=0", (session["user_id"],))
-    db().commit()
-    dashboard = {"admin":"admin_dashboard", "staff":"staff_dashboard", "student":"student_dashboard", "parent":"parent_dashboard"}[session["role"]]
-    return redirect(url_for(dashboard, _anchor="messages"))
+    return redirect(url_for("messages_inbox"))
+
+
+@app.route("/messages")
+@roles("admin","staff","student","parent")
+def messages_inbox():
+    conn = db()
+    user_id = session["user_id"]
+    conn.execute("UPDATE messages SET delivered_at=CURRENT_TIMESTAMP WHERE recipient_id=? AND delivered_at IS NULL", (user_id,))
+    conn.commit()
+    contacts = []
+    for person in portal_contacts(conn, session["role"]):
+        contact_id = person["id"]
+        latest = conn.execute("""SELECT body, attachment_name, created_at FROM messages
+            WHERE (sender_id=? AND recipient_id=?) OR (sender_id=? AND recipient_id=?)
+            ORDER BY id DESC LIMIT 1""", (user_id, contact_id, contact_id, user_id)).fetchone()
+        unread = conn.execute("SELECT COUNT(*) AS n FROM messages WHERE sender_id=? AND recipient_id=? AND is_read=0", (contact_id, user_id)).fetchone()["n"]
+        contacts.append({"id": contact_id, "display_name": person["display_name"], "role": person["role"],
+            "last_message": ((latest["body"] or "").strip() or (latest["attachment_name"] or "Attachment")) if latest else "Start a conversation",
+            "last_created_at": latest["created_at"] if latest else "", "unread_count": unread})
+    contacts.sort(key=lambda item: (item["last_created_at"] or "", item["display_name"].casefold()), reverse=True)
+    return render_template("messages.html", contacts=contacts)
+
+
+@app.route("/messages/<int:contact_id>")
+@roles("admin","staff","student","parent")
+def message_conversation(contact_id):
+    conn = db()
+    current_id = session["user_id"]
+    contact = conn.execute("SELECT id, display_name, role, is_active FROM users WHERE id=?", (contact_id,)).fetchone()
+    if not contact or contact_id == current_id or not contact["is_active"]:
+        abort(404)
+    permitted_ids = {int(person["id"]) for person in portal_contacts(conn, session["role"])}
+    has_history = conn.execute("SELECT 1 FROM messages WHERE (sender_id=? AND recipient_id=?) OR (sender_id=? AND recipient_id=?) LIMIT 1",
+        (current_id, contact_id, contact_id, current_id)).fetchone()
+    if contact_id not in permitted_ids and not has_history:
+        abort(403)
+    preferences = user_preferences_for(conn, current_id)
+    if preferences["read_receipts"]:
+        conn.execute("""UPDATE messages SET is_read=1, read_at=COALESCE(read_at,CURRENT_TIMESTAMP)
+            WHERE sender_id=? AND recipient_id=? AND is_read=0""", (contact_id, current_id))
+    else:
+        conn.execute("UPDATE messages SET is_read=1 WHERE sender_id=? AND recipient_id=? AND is_read=0", (contact_id, current_id))
+    conn.execute("UPDATE messages SET delivered_at=COALESCE(delivered_at,CURRENT_TIMESTAMP) WHERE recipient_id=? AND sender_id=? AND delivered_at IS NULL",
+        (current_id, contact_id))
+    conn.commit()
+    messages = conn.execute("""SELECT m.*, u.display_name AS sender_name FROM messages m
+        JOIN users u ON u.id=m.sender_id
+        WHERE (m.sender_id=? AND m.recipient_id=?) OR (m.sender_id=? AND m.recipient_id=?)
+        ORDER BY m.id ASC""", (current_id, contact_id, contact_id, current_id)).fetchall()
+    return render_template("conversation.html", contact=contact, conversation_messages=messages,
+        recipients=portal_contacts(conn, session["role"]))
+
+
+@app.route("/settings", methods=["GET", "POST"])
+@roles("admin","staff","student","parent")
+def settings():
+    conn = db()
+    user_id = session["user_id"]
+    if request.method == "POST":
+        theme = request.form.get("theme", "light")
+        if theme not in {"light", "dark", "system"}:
+            abort(400)
+        notifications = 1 if request.form.get("message_notifications") == "on" else 0
+        read_receipts = 1 if request.form.get("read_receipts") == "on" else 0
+        conn.execute("""INSERT INTO user_preferences(user_id,theme,message_notifications,read_receipts)
+            VALUES(?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET theme=excluded.theme,
+            message_notifications=excluded.message_notifications, read_receipts=excluded.read_receipts,
+            updated_at=CURRENT_TIMESTAMP""", (user_id, theme, notifications, read_receipts))
+        conn.commit()
+        flash("Your settings have been saved.", "success")
+        return redirect(url_for("settings"))
+    return render_template("settings.html", preferences=user_preferences_for(conn, user_id))
+
 
 @app.route("/messages/send", methods=["POST"])
 @roles("admin","staff","student","parent")
 def send_message():
-    recipient_id = request.form.get("recipient_id", "")
+    recipient_raw = request.form.get("recipient_id", "").strip()
     body = request.form.get("body", "").strip()
-    recipient = db().execute("SELECT id FROM users WHERE id=?", (recipient_id,)).fetchone()
+    try:
+        recipient_id = int(recipient_raw)
+    except (TypeError, ValueError):
+        recipient_id = 0
+    allowed_ids = {int(person["id"]) for person in portal_contacts(db(), session["role"])}
+    recipient = db().execute("SELECT id FROM users WHERE id=? AND is_active=TRUE", (recipient_id,)).fetchone()
     upload = request.files.get("attachment")
     attachment_name = attachment_path = attachment_type = ""
     if upload and upload.filename:
@@ -502,18 +602,19 @@ def send_message():
         attachment_path = save_validated_upload(upload, MESSAGE_FOLDER, allowed_extensions) or ""
         if not attachment_path:
             flash("That attachment is not a supported file or its contents do not match its extension.", "error")
-            return redirect(request.referrer or url_for("portal"))
+            return redirect(url_for("messages_inbox"))
         attachment_name = secure_filename(upload.filename) or "attachment"
         attachment_type = upload.content_type or "application/octet-stream"
-    if not recipient or (not body and not attachment_path):
-        flash("Choose a recipient and add a message or attachment.", "error")
-    else:
-        db().execute("INSERT INTO messages(sender_id,recipient_id,body,attachment_name,attachment_path,attachment_type) VALUES(?,?,?,?,?,?)",
-                     (session["user_id"], recipient["id"], body, attachment_name, attachment_path, attachment_type))
-        db().commit()
-        flash("Message sent successfully.", "success")
-    dashboard = {"admin":"admin_dashboard", "staff":"staff_dashboard", "student":"student_dashboard", "parent":"parent_dashboard"}[session["role"]]
-    return redirect(url_for(dashboard, _anchor="messages"))
+    if not recipient or recipient_id not in allowed_ids or recipient_id == session["user_id"]:
+        abort(403)
+    if not body and not attachment_path:
+        flash("Write a message or attach a file before sending.", "error")
+        return redirect(url_for("message_conversation", contact_id=recipient_id))
+    db().execute("""INSERT INTO messages(sender_id,recipient_id,body,attachment_name,attachment_path,attachment_type,delivered_at)
+        VALUES(?,?,?,?,?,?,NULL)""", (session["user_id"], recipient_id, body, attachment_name, attachment_path, attachment_type))
+    db().commit()
+    return redirect(url_for("message_conversation", contact_id=recipient_id))
+
 
 @app.route("/messages/attachment/<path:filename>")
 @roles("admin","staff","student","parent")
