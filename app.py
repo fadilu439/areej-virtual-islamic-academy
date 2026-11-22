@@ -124,6 +124,10 @@ def init_db():
             throttle = conn.execute("SELECT to_regclass('areej_app.login_attempts') AS table_name").fetchone()
             if not throttle or throttle["table_name"] is None:
                 raise RuntimeError("Supabase table areej_app.login_attempts is missing. Apply migration 002_areej_login_attempts first.")
+            active_column = conn.execute("""SELECT 1 FROM information_schema.columns
+                WHERE table_schema='areej_app' AND table_name='users' AND column_name='is_active'""").fetchone()
+            if not active_column:
+                raise RuntimeError("Supabase users.is_active is missing. Apply migration 004_areej_account_management.sql before deploying this version.")
         finally:
             conn.close()
         return
@@ -196,6 +200,9 @@ def init_db():
       parent_id INTEGER NOT NULL, student_id INTEGER NOT NULL, PRIMARY KEY(parent_id,student_id)
     );
     """)
+    user_columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
+    if "is_active" not in user_columns:
+        conn.execute("ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
     message_columns = {row[1] for row in conn.execute("PRAGMA table_info(messages)")}
     for column, definition in {
         "is_read": "INTEGER DEFAULT 0", "attachment_name": "TEXT DEFAULT ''",
@@ -401,7 +408,7 @@ def login():
             attempt = None
 
         user = conn.execute("SELECT * FROM users WHERE username=?", (username,)).fetchone()
-        if user and check_password_hash(user["password_hash"], password):
+        if user and user["is_active"] and check_password_hash(user["password_hash"], password):
             conn.execute("DELETE FROM login_attempts WHERE attempt_key=?", (attempt_key,))
             conn.commit()
             session.clear()
@@ -600,7 +607,7 @@ def admin_dashboard():
             elif conn.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone():
                 flash("That username is already in use. Please choose another one.", "error")
             else:
-                conn.execute("INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+                conn.execute("INSERT INTO users(username,password_hash,role,display_name,is_active) VALUES(?,?,?,?,TRUE)",
                              (username, generate_password_hash(password), role, display_name))
                 conn.commit()
                 flash(f"{label} account created for {display_name}. Username: {username}", "success")
@@ -622,16 +629,85 @@ def admin_dashboard():
     enrollments = conn.execute("SELECT * FROM enrollments ORDER BY created_at DESC LIMIT 6").fetchall()
     user_counts = {r["role"]:r["n"] for r in conn.execute(
         "SELECT role, COUNT(*) AS n FROM users GROUP BY role").fetchall()}
-    students = conn.execute("SELECT id, username, display_name FROM users WHERE role='student' ORDER BY display_name").fetchall()
-    staff_accounts = conn.execute("SELECT id, username, display_name FROM users WHERE role='staff' ORDER BY display_name").fetchall()
-    parent_accounts = conn.execute("SELECT id, username, display_name FROM users WHERE role='parent' ORDER BY display_name").fetchall()
+    students = conn.execute("SELECT id, username, display_name FROM users WHERE role='student' AND is_active=TRUE ORDER BY display_name").fetchall()
+    staff_accounts = conn.execute("SELECT id, username, display_name FROM users WHERE role='staff' AND is_active=TRUE ORDER BY display_name").fetchall()
+    parent_accounts = conn.execute("SELECT id, username, display_name FROM users WHERE role='parent' AND is_active=TRUE ORDER BY display_name").fetchall()
+    accounts = conn.execute("SELECT id, username, display_name, role, is_active FROM users ORDER BY role, display_name").fetchall()
+    admin_assignments = conn.execute("SELECT a.*, cl.name AS class_name, u.display_name AS teacher_name FROM assignments a JOIN classes cl ON cl.id=a.class_id LEFT JOIN users u ON u.id=cl.teacher_id ORDER BY a.created_at DESC").fetchall()
     portal_messages = conn.execute("SELECT m.*, u.display_name AS sender_name, u.role AS sender_role, r.display_name AS recipient_name FROM messages m JOIN users u ON u.id=m.sender_id JOIN users r ON r.id=m.recipient_id WHERE m.recipient_id=? OR m.sender_id=? ORDER BY m.created_at ASC LIMIT 50", (session["user_id"], session["user_id"])).fetchall()
     classes = conn.execute("SELECT cl.*, u.display_name AS teacher_name FROM classes cl LEFT JOIN users u ON u.id=cl.teacher_id ORDER BY cl.id DESC").fetchall()
     return render_template("admin.html", courses=courses, course_count=course_count,
                            enrollment_count=enrollment_count, pending_enrollments=pending_enrollments,
                            enrollments=enrollments, user_counts=user_counts, students=students,
                            staff_accounts=staff_accounts, parent_accounts=parent_accounts, classes=classes,
+                           accounts=accounts, admin_assignments=admin_assignments,
                            portal_messages=portal_messages, recipients=portal_contacts(conn, "admin"))
+
+@app.route("/admin/accounts/<int:user_id>/update", methods=["POST"])
+@roles("admin")
+def admin_update_account(user_id):
+    conn = db()
+    account = conn.execute("SELECT * FROM users WHERE id=?", (user_id,)).fetchone()
+    if not account:
+        abort(404)
+    display_name = request.form.get("display_name", "").strip()
+    username = request.form.get("username", "").strip().lower()
+    new_password = request.form.get("new_password", "")
+    if not display_name or not username:
+        flash("Name and username are required.", "error")
+    elif new_password and len(new_password) < 8:
+        flash("A new password must contain at least 8 characters.", "error")
+    elif conn.execute("SELECT id FROM users WHERE username=? AND id<>?", (username, user_id)).fetchone():
+        flash("That username is already in use.", "error")
+    else:
+        if new_password:
+            conn.execute("UPDATE users SET display_name=?, username=?, password_hash=? WHERE id=?",
+                         (display_name, username, generate_password_hash(new_password), user_id))
+        else:
+            conn.execute("UPDATE users SET display_name=?, username=? WHERE id=?",
+                         (display_name, username, user_id))
+        conn.commit()
+        flash("Account details updated successfully.", "success")
+        if user_id == session.get("user_id"):
+            session["display_name"] = display_name
+            session["username"] = username
+    return redirect(url_for("admin_dashboard", _anchor="accounts"))
+
+@app.route("/admin/accounts/<int:user_id>/toggle", methods=["POST"])
+@roles("admin")
+def admin_toggle_account(user_id):
+    conn = db()
+    account = conn.execute("SELECT id, role, is_active FROM users WHERE id=?", (user_id,)).fetchone()
+    if not account:
+        abort(404)
+    if user_id == session.get("user_id"):
+        flash("You cannot deactivate your own administrator account.", "error")
+    elif account["role"] == "admin" and account["is_active"]:
+        active_admins = conn.execute("SELECT COUNT(*) AS n FROM users WHERE role='admin' AND is_active=TRUE").fetchone()["n"]
+        if active_admins <= 1:
+            flash("The last active administrator account cannot be deactivated.", "error")
+        else:
+            conn.execute("UPDATE users SET is_active=FALSE WHERE id=?", (user_id,))
+            conn.commit()
+            flash("Administrator account deactivated. Its records have been preserved.", "success")
+    else:
+        conn.execute("UPDATE users SET is_active=? WHERE id=?", (not bool(account["is_active"]), user_id))
+        conn.commit()
+        flash("Account status updated. Existing records have been preserved.", "success")
+    return redirect(url_for("admin_dashboard", _anchor="accounts"))
+
+@app.route("/admin/courses/<int:course_id>/update", methods=["POST"])
+@roles("admin")
+def admin_update_course(course_id):
+    name = request.form.get("name", "").strip()
+    description = request.form.get("description", "").strip()
+    if not name:
+        flash("Course name is required.", "error")
+    else:
+        result = db().execute("UPDATE courses SET name=?, description=? WHERE id=?", (name, description, course_id))
+        db().commit()
+        flash("Course updated successfully." if result.rowcount else "Course was not found.", "success" if result.rowcount else "error")
+    return redirect(url_for("admin_dashboard", _anchor="courses"))
 
 @app.route("/admin/courses/<int:course_id>/delete", methods=["POST"])
 @roles("admin")
@@ -639,6 +715,57 @@ def delete_course(course_id):
     db().execute("DELETE FROM courses WHERE id=?", (course_id,)); db().commit()
     flash("Course deleted if it existed.", "success")
     return redirect(url_for("admin_dashboard"))
+
+@app.route("/admin/classes/<int:class_id>/update", methods=["POST"])
+@roles("admin")
+def admin_update_class(class_id):
+    name = request.form.get("name", "").strip()
+    if not name:
+        flash("Class name is required.", "error")
+    else:
+        result = db().execute("UPDATE classes SET name=?, schedule=?, meeting_url=?, channel=?, description=? WHERE id=?",
+            (name, request.form.get("schedule", "").strip(), request.form.get("meeting_url", "").strip(),
+             request.form.get("channel", "General").strip(), request.form.get("description", "").strip(), class_id))
+        db().commit()
+        flash("Class updated successfully." if result.rowcount else "Class was not found.", "success" if result.rowcount else "error")
+    return redirect(url_for("admin_dashboard", _anchor="manage-classes"))
+
+@app.route("/admin/classes/<int:class_id>/delete", methods=["POST"])
+@roles("admin")
+def admin_delete_class(class_id):
+    conn = db()
+    dependencies = conn.execute("SELECT (SELECT COUNT(*) FROM enrollments_academic WHERE class_id=?)+(SELECT COUNT(*) FROM attendance WHERE class_id=?)+(SELECT COUNT(*) FROM assignments WHERE class_id=?) AS n", (class_id, class_id, class_id)).fetchone()["n"]
+    if dependencies:
+        flash("This class has linked enrolments, attendance or assignments. Remove or reassign those records before deleting it.", "error")
+    else:
+        conn.execute("DELETE FROM classes WHERE id=?", (class_id,)); conn.commit()
+        flash("Class deleted.", "success")
+    return redirect(url_for("admin_dashboard", _anchor="manage-classes"))
+
+@app.route("/admin/assignments/<int:assignment_id>/update", methods=["POST"])
+@roles("admin")
+def admin_update_assignment(assignment_id):
+    title = request.form.get("title", "").strip()
+    if not title:
+        flash("Assignment title is required.", "error")
+    else:
+        result = db().execute("UPDATE assignments SET title=?, instructions=?, due_date=? WHERE id=?",
+            (title, request.form.get("instructions", "").strip(), request.form.get("due_date", "").strip(), assignment_id))
+        db().commit()
+        flash("Assignment updated successfully." if result.rowcount else "Assignment was not found.", "success" if result.rowcount else "error")
+    return redirect(url_for("admin_dashboard", _anchor="manage-assignments"))
+
+@app.route("/admin/assignments/<int:assignment_id>/delete", methods=["POST"])
+@roles("admin")
+def admin_delete_assignment(assignment_id):
+    conn = db()
+    submitted = conn.execute("SELECT COUNT(*) AS n FROM assignment_submissions WHERE assignment_id=?", (assignment_id,)).fetchone()["n"]
+    if submitted:
+        flash("This assignment has student submissions. Keep the record or review submissions before deleting it.", "error")
+    else:
+        conn.execute("DELETE FROM assignments WHERE id=?", (assignment_id,)); conn.commit()
+        flash("Assignment deleted.", "success")
+    return redirect(url_for("admin_dashboard", _anchor="manage-assignments"))
 
 @app.route("/staff/work", methods=["POST"])
 @roles("staff")
@@ -670,6 +797,57 @@ def staff_work():
                      (class_id, title, request.form.get("instructions","").strip(), request.form.get("due_date","")))
         conn.commit()
         flash("Assignment published.", "success")
+
+    elif action == "update_class":
+        class_id = request.form.get("class_id")
+        name = request.form.get("name", "").strip()
+        owned = conn.execute("SELECT id FROM classes WHERE id=? AND teacher_id=?", (class_id, teacher_id)).fetchone()
+        if not owned:
+            abort(403)
+        if not name:
+            flash("Class name is required.", "error")
+        else:
+            conn.execute("UPDATE classes SET name=?, schedule=?, meeting_url=?, channel=?, description=? WHERE id=? AND teacher_id=?",
+                (name, request.form.get("schedule", "").strip(), request.form.get("meeting_url", "").strip(),
+                 request.form.get("channel", "General").strip(), request.form.get("description", "").strip(), class_id, teacher_id))
+            conn.commit(); flash("Class updated.", "success")
+
+    elif action == "delete_class":
+        class_id = request.form.get("class_id")
+        owned = conn.execute("SELECT id FROM classes WHERE id=? AND teacher_id=?", (class_id, teacher_id)).fetchone()
+        if not owned:
+            abort(403)
+        dependencies = conn.execute("SELECT (SELECT COUNT(*) FROM enrollments_academic WHERE class_id=?)+(SELECT COUNT(*) FROM attendance WHERE class_id=?)+(SELECT COUNT(*) FROM assignments WHERE class_id=?) AS n", (class_id, class_id, class_id)).fetchone()["n"]
+        if dependencies:
+            flash("This class has linked student or academic records, so it cannot be deleted yet.", "error")
+        else:
+            conn.execute("DELETE FROM classes WHERE id=? AND teacher_id=?", (class_id, teacher_id))
+            conn.commit(); flash("Class deleted.", "success")
+
+    elif action == "update_assignment":
+        assignment_id = request.form.get("assignment_id")
+        title = request.form.get("title", "").strip()
+        owned = conn.execute("SELECT a.id FROM assignments a JOIN classes cl ON cl.id=a.class_id WHERE a.id=? AND cl.teacher_id=?", (assignment_id, teacher_id)).fetchone()
+        if not owned:
+            abort(403)
+        if not title:
+            flash("Assignment title is required.", "error")
+        else:
+            conn.execute("UPDATE assignments SET title=?, instructions=?, due_date=? WHERE id=?",
+                (title, request.form.get("instructions", "").strip(), request.form.get("due_date", "").strip(), assignment_id))
+            conn.commit(); flash("Assignment updated.", "success")
+
+    elif action == "delete_assignment":
+        assignment_id = request.form.get("assignment_id")
+        owned = conn.execute("SELECT a.id FROM assignments a JOIN classes cl ON cl.id=a.class_id WHERE a.id=? AND cl.teacher_id=?", (assignment_id, teacher_id)).fetchone()
+        if not owned:
+            abort(403)
+        submitted = conn.execute("SELECT COUNT(*) AS n FROM assignment_submissions WHERE assignment_id=?", (assignment_id,)).fetchone()["n"]
+        if submitted:
+            flash("This assignment already has student submissions and cannot be deleted.", "error")
+        else:
+            conn.execute("DELETE FROM assignments WHERE id=?", (assignment_id,))
+            conn.commit(); flash("Assignment deleted.", "success")
 
     elif action == "record_attendance":
         class_id, student_id = request.form.get("class_id"), request.form.get("student_id")
