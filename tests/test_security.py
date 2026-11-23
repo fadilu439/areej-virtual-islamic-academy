@@ -415,7 +415,7 @@ def test_profile_picture_upload_is_saved_to_the_signed_in_users_own_account(clie
             "csrf_token": token,
             "display_name": "Test Student",
             "theme": "light",
-            "profile_picture": (BytesIO(b"\\x89PNG\\r\\n\\x1a\\nprofile-test"), "student.png", "image/png"),
+            "profile_picture": (BytesIO(b"\x89PNG\r\n\x1a\nprofile-test"), "student.png", "image/png"),
         },
         content_type="multipart/form-data",
     )
