@@ -166,6 +166,12 @@ def init_db():
                 AND column_name IN ('age','date_of_birth','gender','country','state','phone','email','guardian_name','programme','bio','profile_visibility','show_location')""").fetchone()
             if profile_columns["n"] != 12:
                 raise RuntimeError("Apply migration 008_areej_student_profiles.sql before deploying this version.")
+            academic_tables = conn.execute("SELECT to_regclass('areej_app.academic_reports') AS reports, to_regclass('areej_app.assignment_submissions') AS submissions").fetchone()
+            submission_columns = conn.execute("""SELECT COUNT(*) AS n FROM information_schema.columns
+                WHERE table_schema='areej_app' AND table_name='assignment_submissions'
+                AND column_name IN ('score','feedback','status','reviewed_by','reviewed_at')""").fetchone()
+            if not academic_tables or not academic_tables["reports"] or not academic_tables["submissions"] or submission_columns["n"] != 5:
+                raise RuntimeError("Apply migration 009_areej_academic_reports.sql before deploying this version.")
         finally:
             conn.close()
         return
@@ -244,6 +250,17 @@ def init_db():
     CREATE TABLE IF NOT EXISTS parent_links (
       parent_id INTEGER NOT NULL, student_id INTEGER NOT NULL, PRIMARY KEY(parent_id,student_id)
     );
+    CREATE TABLE IF NOT EXISTS academic_reports (
+      id INTEGER PRIMARY KEY, report_type TEXT NOT NULL, class_id INTEGER NOT NULL,
+      staff_id INTEGER NOT NULL, student_id INTEGER, report_date TEXT NOT NULL,
+      week_start TEXT DEFAULT '', week_end TEXT DEFAULT '', topic TEXT DEFAULT '',
+      duration_minutes INTEGER DEFAULT 0, attendance_count INTEGER DEFAULT 0,
+      progress_notes TEXT DEFAULT '', challenges TEXT DEFAULT '', next_steps TEXT DEFAULT '',
+      score REAL, maximum_score REAL, teacher_comments TEXT DEFAULT '',
+      recommendations TEXT DEFAULT '', status TEXT NOT NULL DEFAULT 'submitted',
+      reviewer_id INTEGER, reviewed_at TEXT, review_note TEXT DEFAULT '',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
     """)
     user_columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
     if "is_active" not in user_columns:
@@ -280,6 +297,14 @@ def init_db():
         previous_body TEXT DEFAULT '',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
+    submission_columns = {row[1] for row in conn.execute("PRAGMA table_info(assignment_submissions)")}
+    for column, definition in {
+        "score": "REAL", "feedback": "TEXT DEFAULT ''",
+        "status": "TEXT NOT NULL DEFAULT 'submitted'",
+        "reviewed_by": "INTEGER", "reviewed_at": "TEXT"
+    }.items():
+        if column not in submission_columns:
+            conn.execute("ALTER TABLE assignment_submissions ADD COLUMN " + column + " " + definition)
     # Never create predictable demo accounts automatically.
     # Create the first administrator only when the deployment owner
     # explicitly supplies a private environment variable.
@@ -1496,6 +1521,10 @@ def too_many_requests(error):
         "error.html", code=429,
         message="Too many requests. Please wait a few minutes and try again."
     ), 429
+
+# Register the academic reports and assignment-review workspace.
+from academic_workspace import register_academic_routes
+register_academic_routes(app, db, roles)
 
 # Initialize the selected database when imported by a WSGI server such as Gunicorn.
 # SQLite setup is idempotent; PostgreSQL mode only validates the pre-provisioned
