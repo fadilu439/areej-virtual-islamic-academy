@@ -135,6 +135,10 @@ def init_db():
             preferences_table = conn.execute("SELECT to_regclass('areej_app.user_preferences') AS table_name").fetchone()
             if not message_receipts or not preferences_table or preferences_table["table_name"] is None:
                 raise RuntimeError("Apply migration 005_areej_messaging_settings.sql before deploying this version.")
+            profile_column = conn.execute("""SELECT 1 FROM information_schema.columns
+                WHERE table_schema='areej_app' AND table_name='users' AND column_name='profile_picture'""").fetchone()
+            if not profile_column:
+                raise RuntimeError("Apply migration 006_areej_profile_pictures.sql before deploying this version.")
         finally:
             conn.close()
         return
