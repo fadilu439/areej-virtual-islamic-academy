@@ -2,8 +2,10 @@
 import datetime
 import io
 import math
+import os
 import secrets
 from flask import abort, flash, redirect, render_template, request, session, url_for, send_file
+from werkzeug.utils import secure_filename
 
 
 def register_finance_routes(app, db, roles, save_upload, read_upload, upload_folder):
@@ -83,7 +85,7 @@ def register_finance_routes(app, db, roles, save_upload, read_upload, upload_fol
     def finance_submit_payment(invoice_id):
         conn=db()
         invoice=conn.execute("SELECT * FROM invoices WHERE id=?",(invoice_id,)).fetchone()
-        if not invoice:
+        if not invoice or invoice["status"] not in {"unpaid", "partial"}:
             abort(404)
         if session["role"]=="student":
             allowed=invoice["student_id"]==session["user_id"]
@@ -106,7 +108,7 @@ def register_finance_routes(app, db, roles, save_upload, read_upload, upload_fol
         if not proof_path:
             flash("Upload a valid JPG, PNG or PDF payment proof.", "error")
             return redirect(url_for("finance_portal"))
-        proof_name=(upload.filename or "payment-proof")[:180]
+        proof_name=(secure_filename(upload.filename or "payment-proof") or "payment-proof")[:180]
         conn.execute("""INSERT INTO payments(invoice_id,student_id,amount,method,reference,proof_path,proof_name,status)
             VALUES(?,?,?,'manual_transfer',?,?,?,'pending')""",
             (invoice_id,invoice["student_id"],amount,request.form.get("reference","").strip()[:120],proof_path,proof_name))
@@ -128,14 +130,22 @@ def register_finance_routes(app, db, roles, save_upload, read_upload, upload_fol
             flash("This payment has already been reviewed.", "error")
             return redirect(url_for("finance_portal"))
         if decision=="confirmed":
+            # Serialize confirmations per invoice on PostgreSQL to prevent
+            # two pending instalments from being confirmed against the same balance.
+            if os.environ.get("AREEJ_DATABASE_URL"):
+                conn.execute("SELECT id FROM invoices WHERE id=? FOR UPDATE",(payment["invoice_id"],)).fetchone()
             totals=conn.execute("SELECT COALESCE(SUM(amount),0) AS total FROM payments WHERE invoice_id=? AND status='confirmed'",(payment["invoice_id"],)).fetchone()["total"]
             invoice=conn.execute("SELECT amount FROM invoices WHERE id=?",(payment["invoice_id"],)).fetchone()
             if float(totals or 0)+float(payment["amount"])>float(invoice["amount"]):
                 flash("This payment would exceed the remaining invoice balance. Review the payment before confirming.", "error")
                 return redirect(url_for("finance_portal"))
         receipt=("AREEJ-"+str(payment_id)+"-"+secrets.token_hex(3).upper()) if decision=="confirmed" else None
-        conn.execute("""UPDATE payments SET status=?,reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP,receipt_number=?
+        updated=conn.execute("""UPDATE payments SET status=?,reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP,receipt_number=?
             WHERE id=? AND status='pending'""",(decision,session["user_id"],receipt,payment_id))
+        if updated.rowcount != 1:
+            conn.rollback()
+            flash("This payment was already reviewed. Refresh the finance page.", "warning")
+            return redirect(url_for("finance_portal"))
         if decision=="confirmed":
             totals=conn.execute("SELECT COALESCE(SUM(amount),0) AS total FROM payments WHERE invoice_id=? AND status='confirmed'",(payment["invoice_id"],)).fetchone()["total"]
             invoice=conn.execute("SELECT amount FROM invoices WHERE id=?",(payment["invoice_id"],)).fetchone()
