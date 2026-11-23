@@ -85,10 +85,19 @@
     <form class="course-form student-form" id="studentForm" method="post" hidden>
       <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
       <input type="hidden" name="action" value="add_student">
-      <div><label for="student_name">Student name</label><input id="student_name" name="student_name" maxlength="100" placeholder="Full name" required></div>
-      <div><label for="student_username">Username</label><input id="student_username" name="student_username" maxlength="60" autocomplete="off" placeholder="e.g. student01" required></div>
-      <div><label for="student_password">Temporary password</label><input id="student_password" name="student_password" type="password" minlength="8" autocomplete="new-password" placeholder="At least 8 characters" required></div>
-      <button class="btn primary" type="submit">Create Student Account</button>
+      <div><label for="student_name">Student full name</label><input id="student_name" name="student_name" maxlength="100" placeholder="Full name" required></div>
+      <div><label for="student_age">Age</label><input id="student_age" name="student_age" type="number" min="3" placeholder="Age in years" required></div>
+      <div><label for="date_of_birth">Date of birth (optional)</label><input id="date_of_birth" name="date_of_birth" type="date"></div>
+      <div><label for="gender">Gender</label><select id="gender" name="gender" required><option value="">Select gender</option><option>Male</option><option>Female</option></select></div>
+      <div><label for="country">Country</label><input id="country" name="country" maxlength="100" placeholder="Country of residence" required></div>
+      <div><label for="state">State / Region</label><input id="state" name="state" maxlength="100" placeholder="State or region" required></div>
+      <div><label for="student_phone">Phone number (optional)</label><input id="student_phone" name="student_phone" type="tel" maxlength="40"></div>
+      <div><label for="student_email">Email address (optional)</label><input id="student_email" name="student_email" type="email" maxlength="160"></div>
+      <div><label for="guardian_name">Parent / guardian name (optional)</label><input id="guardian_name" name="guardian_name" maxlength="120"></div>
+      <p class="muted">Leave both username and password blank to generate secure login details automatically. If a date of birth is provided, the system calculates the age from it.</p>
+      <div><label for="student_username">Username (optional)</label><input id="student_username" name="student_username" maxlength="60" autocomplete="off" placeholder="Generated automatically if blank"></div>
+      <div><label for="student_password">Temporary password (optional)</label><input id="student_password" name="student_password" type="password" minlength="8" autocomplete="new-password" placeholder="Generated automatically if blank"></div>
+      <button class="btn primary" type="submit">Register Student & Create Account</button>
     </form>
 
     {% if students %}
