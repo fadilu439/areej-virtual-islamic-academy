@@ -9,7 +9,7 @@
       {% for person in contacts %}
       <a class="chat-contact" href="{{ url_for('message_conversation', contact_id=person.id) }}" data-search="{{ (person.display_name ~ ' ' ~ person.role ~ ' ' ~ person.last_message)|lower }}">
         {% if person.profile_picture %}<img class="chat-avatar avatar-photo" src="{{ url_for('profile_avatar', user_id=person.id) }}" alt="{{ person.display_name }}">{% else %}<span class="chat-avatar">{{ person.display_name[0]|upper }}</span>{% endif %}<span class="chat-contact-copy">
-          <span class="chat-contact-top"><strong>{{ person.display_name }}</strong><small><a href="{{ url_for('public_profile', user_id=person.id) }}" onclick="event.stopPropagation()">Profile</a> · {{ person.last_created_at if person.last_created_at else '' }}</small></span>
+          <span class="chat-contact-top"><strong>{{ person.display_name }}</strong><small>{{ person.last_created_at if person.last_created_at else '' }}</small></span>
           <span class="chat-contact-bottom"><span class="chat-preview">{{ person.last_message }}</span>{% if person.unread_count %}<span class="unread-pill">{{ person.unread_count }}</span>{% endif %}</span>
         </span>
       </a>
