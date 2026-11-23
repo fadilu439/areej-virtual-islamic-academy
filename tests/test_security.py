@@ -123,6 +123,7 @@ def test_admin_cannot_create_account_with_short_password(client):
             "csrf_token": "test-csrf",
             "action": "add_student",
             "student_name": "New Student",
+            "student_age": "8", "gender": "Female", "country": "Nigeria", "state": "Kano",
             "student_username": "new-student",
             "student_password": "short7!",
         },
@@ -607,3 +608,70 @@ def test_user_can_forward_visible_message_only_to_authorized_contact(client):
         assert forwarded["sender_id"] == 1
         assert forwarded["body"] == "Please share this lesson note"
         assert forwarded["forwarded_from_id"] == source_id
+
+
+def test_student_registration_generates_secure_account_and_saves_private_details(client):
+    with client.session_transaction() as session:
+        session.update(user_id=1, username="admin-test", role="admin", csrf_token="test-csrf")
+    response = client.post("/admin", data={
+        "csrf_token": "test-csrf", "action": "add_student",
+        "student_name": "Generated Learner", "student_age": "9",
+        "date_of_birth": "2017-06-01", "gender": "Female",
+        "country": "Nigeria", "state": "Kano", "student_phone": "08000000000",
+        "student_email": "learner@example.test", "guardian_name": "Parent Name",
+        "programme": "Arabic Language",
+    })
+    assert response.status_code == 302
+    with app_module.app.app_context():
+        user = app_module.db().execute("SELECT * FROM users WHERE display_name=?", ("Generated Learner",)).fetchone()
+        assert user is not None
+        assert user["role"] == "student"
+        assert user["age"] == 9
+        assert user["date_of_birth"] == "2017-06-01"
+        assert user["gender"] == "Female"
+        assert user["country"] == "Nigeria" and user["state"] == "Kano"
+        assert user["guardian_name"] == "Parent Name"
+        assert user["programme"] == "Arabic Language"
+        assert user["username"]
+        assert user["password_hash"] != ""
+        from werkzeug.security import check_password_hash
+        assert not check_password_hash(user["password_hash"], user["username"])
+
+
+def test_private_profile_hides_profile_from_other_portal_users(client):
+    with app_module.app.app_context():
+        conn = app_module.db()
+        conn.execute("UPDATE users SET profile_visibility='private', bio='Private biography', phone='08012345678' WHERE id=2")
+        conn.commit()
+    with client.session_transaction() as session:
+        session.update(user_id=1, username="admin-test", role="admin", csrf_token="test-csrf")
+    assert client.get("/profile/2").status_code == 403
+
+
+def test_contact_profile_shows_only_opted_in_public_fields(client):
+    with app_module.app.app_context():
+        conn = app_module.db()
+        conn.execute("UPDATE users SET bio='Quran learner', country='Nigeria', state='Kano', show_location=1, phone='08012345678', email='private@example.test', date_of_birth='2017-01-01' WHERE id=2")
+        conn.commit()
+    with client.session_transaction() as session:
+        session.update(user_id=1, username="admin-test", role="admin", csrf_token="test-csrf")
+    response = client.get("/profile/2")
+    assert response.status_code == 200
+    assert b"Quran learner" in response.data
+    assert b"Nigeria" in response.data
+    assert b"08012345678" not in response.data
+    assert b"private@example.test" not in response.data
+    assert b"2017-01-01" not in response.data
+
+
+def test_message_search_filters_contacts_by_name_or_message_body(client):
+    with app_module.app.app_context():
+        conn = app_module.db()
+        conn.execute("INSERT INTO messages(sender_id,recipient_id,body) VALUES(?,?,?)", (2,1,"Tajweed lesson reminder"))
+        conn.commit()
+    with client.session_transaction() as session:
+        session.update(user_id=1, username="admin-test", role="admin", csrf_token="test-csrf")
+    response = client.get("/messages?q=Tajweed")
+    assert response.status_code == 200
+    assert b"Test Student" in response.data
+    assert b"Search" in response.data
