@@ -1070,8 +1070,8 @@ def admin_dashboard():
                 email = request.form.get("student_email", "").strip()
                 guardian_name = request.form.get("guardian_name", "").strip()
                 programme = request.form.get("programme", "").strip()
-                if not display_name or age_value < 3 or gender not in {"Male", "Female"} or not country or not state:
-                    flash("Student registration requires the full name, age (minimum 3), gender, country and state.", "error")
+                if not display_name or age_value < 3 or gender not in {"Male", "Female"} or not country or not state or not programme:
+                    flash("Student registration requires the full name, age (minimum 3), gender, programme, country and state.", "error")
                     return redirect(url_for("admin_dashboard", _anchor=anchor))
                 if dob:
                     try:
