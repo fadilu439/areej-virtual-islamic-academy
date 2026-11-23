@@ -1,0 +1,39 @@
+{% extends "base.html" %}
+{% block title %}{{ kind|title }} Directory | Areej Academy{% endblock %}
+{% block heading %}{{ kind|title }} Directory{% endblock %}
+{% block content %}
+<section class="panel">
+  <div class="panel-head"><div><small>ACADEMY DIRECTORY</small><h2>All {{ kind|title }}</h2><p class="muted">{{ total }} record(s) · Showing up to {{ per_page }} per page</p></div><a class="btn" href="{{ url_for('admin_dashboard', _anchor='accounts' if kind != 'courses' else 'courses') }}">← Dashboard</a></div>
+  <form method="get" class="course-form" role="search">
+    <div><label for="directorySearch">Search</label><input id="directorySearch" name="q" value="{{ query }}" placeholder="Search names, usernames or descriptions"></div>
+    {% if kind != 'courses' %}<div><label for="directoryStatus">Account status</label><select id="directoryStatus" name="status"><option value="active" {% if status == 'active' %}selected{% endif %}>Active</option><option value="inactive" {% if status == 'inactive' %}selected{% endif %}>Inactive</option><option value="all" {% if status == 'all' %}selected{% endif %}>All accounts</option></select></div>{% endif %}
+    <button class="btn primary" type="submit">Search</button><a class="btn" href="{{ url_for('admin_directory', kind=kind) }}">Clear</a>
+  </form>
+  {% if rows %}
+    <div class="table-wrap"><table><thead><tr>{% if kind == 'courses' %}<th>Course</th><th>Description</th><th>Created</th>{% else %}<th>Name</th><th>Username</th><th>Status</th><th>Action</th>{% endif %}</tr></thead><tbody>
+    {% for row in rows %}<tr>
+      {% if kind == 'courses' %}<td><strong>{{ row.name }}</strong></td><td>{{ row.description or 'No description' }}</td><td>{{ row.created_at }}</td>
+      {% else %}<td><strong>{{ row.display_name }}</strong></td><td>@{{ row.username }}</td><td>{{ 'Active' if row.is_active else 'Deactivated' }}</td><td>
+        <details class="portal-details"><summary>Edit account</summary>
+          <form class="course-form" method="post" action="{{ url_for('admin_update_account', user_id=row.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+            <label>Full name</label><input name="display_name" value="{{ row.display_name }}" maxlength="100" required>
+            <label>Username</label><input name="username" value="{{ row.username }}" maxlength="60" required>
+            <label>New password (leave blank to keep current)</label><input name="new_password" type="password" minlength="8" autocomplete="new-password">
+            <button class="btn primary" type="submit">Save Changes</button>
+          </form>
+        </details>
+        <form method="post" action="{{ url_for('admin_toggle_account', user_id=row.id) }}" onsubmit="return confirm('{{ 'Restore' if not row.is_active else 'Deactivate' }} this account? Existing records will be preserved.')">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn small" type="submit">{{ 'Restore' if not row.is_active else 'Deactivate' }}</button>
+        </form>
+      </td>{% endif %}
+    </tr>{% endfor %}
+    </tbody></table></div>
+  {% else %}<div class="empty compact"><p>No matching records were found.</p></div>{% endif %}
+  <nav class="directory-pagination" aria-label="Directory pages">
+    {% if page > 1 %}<a class="btn" href="{{ url_for('admin_directory', kind=kind, q=query, status=status, page=page-1) }}">← Previous</a>{% endif %}
+    <span>Page {{ page }} of {{ pages }}</span>
+    {% if page < pages %}<a class="btn" href="{{ url_for('admin_directory', kind=kind, q=query, status=status, page=page+1) }}">Next →</a>{% endif %}
+  </nav>
+</section>
+{% endblock %}

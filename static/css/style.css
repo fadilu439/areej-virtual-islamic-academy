@@ -119,3 +119,17 @@
   .chat-composer input[type=file]{grid-column:1;max-width:100%;font-size:11px}
   .chat-composer .btn{grid-column:2;grid-row:2}
 }
+
+/* Profile picture presentation and Help Center */
+.avatar-photo{object-fit:cover;padding:0;border:2px solid #fff}.profile-picture-preview{width:104px;height:104px;object-fit:cover;border-radius:50%;border:3px solid var(--line);display:block;margin:12px 0}.settings-option input[type=file]{max-width:100%;font-size:13px}.help-search{display:flex;gap:10px;margin:18px 0}.help-search input{flex:1;min-width:0;padding:12px;border:1px solid var(--line);border-radius:10px}.help-articles{display:grid;gap:14px}.help-article{background:#fff;border:1px solid var(--line);border-radius:14px;padding:20px;box-shadow:var(--shadow)}.help-article h3{margin:0 0 8px}.help-article p{margin:0;color:var(--muted);line-height:1.7}.help-empty{padding:24px;text-align:center;color:var(--muted);background:#fff;border-radius:14px}
+
+
+/* Searchable directories and compact message actions */
+.directory-links{display:flex;flex-wrap:wrap;gap:10px;margin-top:16px}
+.directory-pagination{display:flex;align-items:center;justify-content:center;gap:16px;margin-top:20px}
+.message-actions{display:flex;flex-wrap:wrap;align-items:center;gap:7px;margin-top:10px}
+.message-actions .portal-details{margin:0}
+.message-actions form{display:inline-flex;margin:0}
+.message-actions textarea,.message-actions select{max-width:100%;margin:6px 0}
+.message-actions .delete{font-size:.78rem;padding:6px 9px}
+@media(max-width:640px){.directory-links .btn{flex:1 1 100%;text-align:center}.directory-pagination{flex-wrap:wrap}}

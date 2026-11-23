@@ -21,8 +21,10 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = Path(os.environ.get("AREEJ_DB_PATH", DATA_DIR / "areej_academy.db"))
 UPLOAD_FOLDER = DATA_DIR / "uploads" / "payment-proofs"
 MESSAGE_FOLDER = DATA_DIR / "uploads" / "messages"
+PROFILE_FOLDER = DATA_DIR / "uploads" / "profile-pictures"
 UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
 MESSAGE_FOLDER.mkdir(parents=True, exist_ok=True)
+PROFILE_FOLDER.mkdir(parents=True, exist_ok=True)
 app = Flask(__name__)
 
 @app.route("/service-worker.js")
@@ -93,7 +95,7 @@ def save_validated_upload(upload, folder, allowed_extensions):
     if extension not in allowed_extensions or not valid_upload_signature(upload, extension):
         return None
     stored_name = f"{secrets.token_hex(12)}_{safe_name}"
-    category = "payment-proofs" if folder == UPLOAD_FOLDER else "messages"
+    category = "payment-proofs" if folder == UPLOAD_FOLDER else ("profile-pictures" if folder == PROFILE_FOLDER else "messages")
     return save_upload(upload, category, folder, stored_name)
 
 def db():
@@ -133,6 +135,16 @@ def init_db():
             preferences_table = conn.execute("SELECT to_regclass('areej_app.user_preferences') AS table_name").fetchone()
             if not message_receipts or not preferences_table or preferences_table["table_name"] is None:
                 raise RuntimeError("Apply migration 005_areej_messaging_settings.sql before deploying this version.")
+            profile_column = conn.execute("""SELECT 1 FROM information_schema.columns
+                WHERE table_schema='areej_app' AND table_name='users' AND column_name='profile_picture'""").fetchone()
+            if not profile_column:
+                raise RuntimeError("Apply migration 006_areej_profile_pictures.sql before deploying this version.")
+            message_actions = conn.execute("""SELECT COUNT(*) AS n FROM information_schema.columns
+                WHERE table_schema='areej_app' AND table_name='messages'
+                AND column_name IN ('edited_at','hidden_for_sender','hidden_for_recipient','deleted_for_everyone','forwarded_from_id')""").fetchone()
+            history_table = conn.execute("SELECT to_regclass('areej_app.message_history') AS table_name").fetchone()
+            if message_actions["n"] != 5 or not history_table or history_table["table_name"] is None:
+                raise RuntimeError("Apply migration 007_areej_message_actions.sql before deploying this version.")
         finally:
             conn.close()
         return
@@ -215,14 +227,29 @@ def init_db():
     user_columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
     if "is_active" not in user_columns:
         conn.execute("ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
+    if "profile_picture" not in user_columns:
+        conn.execute("ALTER TABLE users ADD COLUMN profile_picture TEXT")
     message_columns = {row[1] for row in conn.execute("PRAGMA table_info(messages)")}
     for column, definition in {
         "is_read": "INTEGER DEFAULT 0", "read_at": "TEXT", "delivered_at": "TEXT",
         "attachment_name": "TEXT DEFAULT ''", "attachment_path": "TEXT DEFAULT ''",
-        "attachment_type": "TEXT DEFAULT ''"
+        "attachment_type": "TEXT DEFAULT ''",
+        "edited_at": "TEXT",
+        "hidden_for_sender": "INTEGER NOT NULL DEFAULT 0",
+        "hidden_for_recipient": "INTEGER NOT NULL DEFAULT 0",
+        "deleted_for_everyone": "INTEGER NOT NULL DEFAULT 0",
+        "forwarded_from_id": "INTEGER"
     }.items():
         if column not in message_columns:
             conn.execute(f"ALTER TABLE messages ADD COLUMN {column} {definition}")
+    conn.execute("""CREATE TABLE IF NOT EXISTS message_history (
+        id INTEGER PRIMARY KEY,
+        message_id INTEGER NOT NULL,
+        actor_id INTEGER NOT NULL,
+        action TEXT NOT NULL,
+        previous_body TEXT DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )""")
     # Never create predictable demo accounts automatically.
     # Create the first administrator only when the deployment owner
     # explicitly supplies a private environment variable.
@@ -278,14 +305,16 @@ def user_preferences_for(conn, user_id):
 @app.context_processor
 def context_user():
     unread_count = 0
+    profile = None
     preferences = {"theme": "light", "message_notifications": 1, "read_receipts": 1}
     if session.get("user_id"):
         conn = db()
         unread_count = conn.execute(
-            "SELECT COUNT(*) AS n FROM messages WHERE recipient_id=? AND is_read=0",
+            "SELECT COUNT(*) AS n FROM messages WHERE recipient_id=? AND is_read=0 AND hidden_for_recipient=FALSE AND deleted_for_everyone=FALSE",
             (session["user_id"],),
         ).fetchone()["n"]
         preferences = user_preferences_for(conn, session["user_id"])
+        profile = conn.execute("SELECT profile_picture FROM users WHERE id=?", (session["user_id"],)).fetchone()
         if not preferences["message_notifications"]:
             unread_count = 0
     return {
@@ -296,7 +325,8 @@ def context_user():
         "current_user": {
             "username": session.get("username", ""),
             "display_name": session.get("display_name", "User"),
-            "role": session.get("role", "")
+            "role": session.get("role", ""),
+            "profile_picture": profile["profile_picture"] if profile else None
         }
     }
 
@@ -354,7 +384,7 @@ def download_backup():
     with zipfile.ZipFile(memory_file, "w", zipfile.ZIP_DEFLATED) as archive:
         if DB_PATH.exists():
             archive.write(DB_PATH, "areej_academy.db")
-        for directory in (UPLOAD_FOLDER, MESSAGE_FOLDER):
+        for directory in (UPLOAD_FOLDER, MESSAGE_FOLDER, PROFILE_FOLDER):
             if directory.exists():
                 for file_path in directory.rglob("*"):
                     if file_path.is_file():
@@ -483,7 +513,7 @@ def portal_contacts(conn, role):
     # enrolled in classes assigned to them, but not unrelated learners.
     if role == "staff":
         return conn.execute(
-            """SELECT DISTINCT u.id, u.display_name, u.role
+            """SELECT DISTINCT u.id, u.display_name, u.role, u.profile_picture
                FROM users u
                WHERE u.id != ? AND u.is_active=TRUE AND (
                    u.role IN ('admin', 'staff')
@@ -503,7 +533,7 @@ def portal_contacts(conn, role):
         ).fetchall()
 
     return conn.execute(
-        "SELECT id, display_name, role FROM users WHERE id != ? AND is_active=TRUE ORDER BY role, display_name",
+        "SELECT id, display_name, role, profile_picture FROM users WHERE id != ? AND is_active=TRUE ORDER BY role, display_name",
         (session["user_id"],),
     ).fetchall()
 
@@ -524,9 +554,14 @@ def messages_inbox():
     for person in portal_contacts(conn, session["role"]):
         contact_id = person["id"]
         latest = conn.execute("""SELECT body, attachment_name, created_at FROM messages
-            WHERE (sender_id=? AND recipient_id=?) OR (sender_id=? AND recipient_id=?)
+            WHERE ((sender_id=? AND recipient_id=? AND hidden_for_sender=FALSE)
+                OR (sender_id=? AND recipient_id=? AND hidden_for_recipient=FALSE))
+              AND deleted_for_everyone=FALSE
             ORDER BY id DESC LIMIT 1""", (user_id, contact_id, contact_id, user_id)).fetchone()
-        unread = conn.execute("SELECT COUNT(*) AS n FROM messages WHERE sender_id=? AND recipient_id=? AND is_read=0", (contact_id, user_id)).fetchone()["n"]
+        unread = conn.execute("""SELECT COUNT(*) AS n FROM messages
+            WHERE sender_id=? AND recipient_id=? AND is_read=0
+              AND hidden_for_recipient=FALSE AND deleted_for_everyone=FALSE""",
+            (contact_id, user_id)).fetchone()["n"]
         contacts.append({"id": contact_id, "display_name": person["display_name"], "role": person["role"],
             "last_message": ((latest["body"] or "").strip() or (latest["attachment_name"] or "Attachment")) if latest else "Start a conversation",
             "last_created_at": latest["created_at"] if latest else "", "unread_count": unread,
@@ -540,7 +575,7 @@ def messages_inbox():
 def message_conversation(contact_id):
     conn = db()
     current_id = session["user_id"]
-    contact = conn.execute("SELECT id, display_name, role, is_active FROM users WHERE id=?", (contact_id,)).fetchone()
+    contact = conn.execute("SELECT id, display_name, role, is_active, profile_picture FROM users WHERE id=?", (contact_id,)).fetchone()
     if not contact or contact_id == current_id or not contact["is_active"]:
         abort(404)
     permitted_ids = {int(person["id"]) for person in portal_contacts(conn, session["role"])}
@@ -559,8 +594,10 @@ def message_conversation(contact_id):
     conn.commit()
     messages = conn.execute("""SELECT m.*, u.display_name AS sender_name FROM messages m
         JOIN users u ON u.id=m.sender_id
-        WHERE (m.sender_id=? AND m.recipient_id=?) OR (m.sender_id=? AND m.recipient_id=?)
-        ORDER BY m.id ASC""", (current_id, contact_id, contact_id, current_id)).fetchall()
+        WHERE ((m.sender_id=? AND m.recipient_id=?) OR (m.sender_id=? AND m.recipient_id=?))
+          AND ((m.sender_id=? AND m.hidden_for_sender=FALSE) OR (m.recipient_id=? AND m.hidden_for_recipient=FALSE))
+          AND m.deleted_for_everyone=FALSE
+        ORDER BY m.id ASC""", (current_id, contact_id, contact_id, current_id, current_id, current_id)).fetchall()
     return render_template("conversation.html", contact=contact, conversation_messages=messages,
         recipients=portal_contacts(conn, session["role"]))
 
@@ -581,6 +618,7 @@ def settings():
         new_password = request.form.get("new_password", "")
         confirm_password = request.form.get("confirm_password", "")
         account = conn.execute("SELECT password_hash FROM users WHERE id=?", (user_id,)).fetchone()
+        profile_upload = request.files.get("profile_picture")
         if not display_name:
             flash("Your display name cannot be empty.", "error")
             return redirect(url_for("settings"))
@@ -598,6 +636,12 @@ def settings():
                          (display_name, generate_password_hash(new_password), user_id))
         else:
             conn.execute("UPDATE users SET display_name=? WHERE id=?", (display_name, user_id))
+        if profile_upload and profile_upload.filename:
+            profile_picture_path = save_validated_upload(profile_upload, PROFILE_FOLDER, {"jpg", "jpeg", "png", "webp"})
+            if not profile_picture_path:
+                flash("Upload a valid JPG, PNG or WebP image no larger than 5 MB.", "error")
+                return redirect(url_for("settings"))
+            conn.execute("UPDATE users SET profile_picture=? WHERE id=?", (profile_picture_path, user_id))
         conn.execute("""INSERT INTO user_preferences(user_id,theme,message_notifications,read_receipts)
             VALUES(?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET theme=excluded.theme,
             message_notifications=excluded.message_notifications, read_receipts=excluded.read_receipts,
@@ -607,6 +651,100 @@ def settings():
         flash("Your settings have been saved.", "success")
         return redirect(url_for("settings"))
     return render_template("settings.html", preferences=user_preferences_for(conn, user_id))
+
+
+@app.route("/profile/avatar/<int:user_id>")
+@roles("admin", "staff", "student", "parent")
+def profile_avatar(user_id):
+    if user_id != session.get("user_id"):
+        permitted_ids = {int(person["id"]) for person in portal_contacts(db(), session["role"])}
+        has_history = db().execute(
+            "SELECT 1 FROM messages WHERE (sender_id=? AND recipient_id=?) OR (sender_id=? AND recipient_id=?) LIMIT 1",
+            (session["user_id"], user_id, user_id, session["user_id"]),
+        ).fetchone()
+        if user_id not in permitted_ids and not has_history:
+            abort(403)
+    row = db().execute("SELECT profile_picture FROM users WHERE id=? AND is_active=TRUE", (user_id,)).fetchone()
+    if not row or not row["profile_picture"]:
+        abort(404)
+    stored_path = row["profile_picture"]
+    try:
+        content = read_upload(stored_path, PROFILE_FOLDER)
+    except (FileNotFoundError, ValueError):
+        abort(404)
+    extension = Path(stored_path).suffix.lower()
+    mimetype = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}.get(extension)
+    if not mimetype:
+        abort(404)
+    response = send_file(io.BytesIO(content), mimetype=mimetype, max_age=300)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Cache-Control"] = "private, max-age=300"
+    return response
+
+
+@app.route("/help")
+@roles("admin", "staff", "student", "parent")
+def help_center():
+    role = session["role"]
+    guides = {
+        "admin": [
+            ("Manage user accounts", "Open the Admin Dashboard to create accounts, review account status and manage authorised account details. Protect administrator credentials and never share passwords."),
+            ("Manage courses and classes", "Review courses, assign teachers and check class schedules. Confirm linked records before deleting academic items."),
+            ("Review admissions and payments", "Check each admission and payment proof carefully. Only the Administrator/Director confirms payments and updates their status."),
+            ("Reports and student progress", "Review attendance, examination results and progress. Check student identity and grade before publishing a result."),
+            ("Account security", "Use Settings to update your profile, preferences and password. Sign out on shared devices.")
+        ],
+        "staff": [
+            ("Manage your classes", "View assigned classes and enrolled students. Do not access or share unrelated student records."),
+            ("Record attendance", "Choose the correct class and lesson date, then record attendance accurately. Contact an administrator if a correction is required."),
+            ("Assignments and examinations", "Publish work for assigned classes, review submissions and enter marks carefully. The minimum passing mark is 70 percent."),
+            ("Messages and parent communication", "Use Message Centre to contact authorised users. Keep student information confidential."),
+            ("Settings and account security", "Use Settings to update your profile and password. Never share login details.")
+        ],
+        "student": [
+            ("Your Student Dashboard", "Access your courses, classes, assignments, attendance and results. Contact your teacher if expected information is missing."),
+            ("Joining lessons", "Check your approved timetable and join at the time shown in your local time zone. Each lesson lasts 40 minutes."),
+            ("Assignments and examinations", "Read instructions and due dates carefully. The minimum passing mark is 70 percent. Ask your teacher about an approved retake."),
+            ("Messages", "Use Message Centre to contact your teacher or authorised academy staff. Never share your password."),
+            ("Profile and password", "Open Settings to update your display name, profile picture and password. You can only change your own account details.")
+        ],
+        "parent": [
+            ("Your Parent Dashboard", "Review linked children, learning progress, attendance and results."),
+            ("Timetable and missed lessons", "Check each child's timetable in their local time zone. Contact the teacher or administrator to arrange a missed lesson."),
+            ("Payments", "Contact the Administrator/Director for payment confirmation. Eligible families enrolling five children pay for four."),
+            ("Contact teachers", "Use Message Centre to contact authorised teachers or administrators about your linked child."),
+            ("Profile and account security", "Open Settings to update your display name, profile picture and password.")
+        ]
+    }[role]
+    faqs_by_role = {
+        "admin": [
+            ("Who confirms student payments?", "The Administrator/Director confirms payments."),
+            ("How do I protect an account?", "Use account controls carefully, keep administrator passwords private and deactivate accounts only when appropriate."),
+            ("Where can I review student performance?", "Use the academic records and results sections in the Admin Portal.")
+        ],
+        "staff": [
+            ("Which students can I access?", "Only students enrolled in classes assigned to you should appear in your Staff Portal."),
+            ("What is the minimum passing mark?", "The academy minimum passing mark is 70 percent."),
+            ("Who can help with an account issue?", "Contact an authorised academy administrator through Message Centre.")
+        ],
+        "student": [
+            ("How long is each lesson?", "Each lesson lasts 40 minutes."),
+            ("What is the minimum passing mark?", "You need at least 70 percent to pass an examination."),
+            ("Can I change my profile picture?", "Yes. Open Settings and upload a JPG, PNG or WebP image up to 5 MB.")
+        ],
+        "parent": [
+            ("How can I check my child's progress?", "Open the Parent Dashboard to review linked children, attendance and available results."),
+            ("Who confirms payments?", "The Administrator/Director confirms payments."),
+            ("Is there a family discount?", "When five children from one family enrol, the family pays for four; the fifth child is free.")
+        ]
+    }
+    query = request.args.get("q", "").strip().casefold()
+    articles = [{"title": title, "body": body} for title, body in guides]
+    faqs = [{"question": question, "answer": answer} for question, answer in faqs_by_role[role]]
+    if query:
+        articles = [item for item in articles if query in item["title"].casefold() or query in item["body"].casefold()]
+        faqs = [item for item in faqs if query in item["question"].casefold() or query in item["answer"].casefold()]
+    return render_template("help_center.html", articles=articles, faqs=faqs, search_query=request.args.get("q", ""))
 
 
 @app.route("/messages/send", methods=["POST"])
@@ -639,6 +777,88 @@ def send_message():
         VALUES(?,?,?,?,?,?,NULL)""", (session["user_id"], recipient_id, body, attachment_name, attachment_path, attachment_type))
     db().commit()
     return redirect(url_for("message_conversation", contact_id=recipient_id))
+
+
+@app.route("/messages/<int:message_id>/action", methods=["POST"])
+@roles("admin","staff","student","parent")
+def message_action(message_id):
+    conn = db()
+    current_id = session["user_id"]
+    message = conn.execute(
+        "SELECT * FROM messages WHERE id=? AND (sender_id=? OR recipient_id=?)",
+        (message_id, current_id, current_id),
+    ).fetchone()
+    if not message or message["deleted_for_everyone"]:
+        abort(404)
+    if (message["sender_id"] == current_id and message["hidden_for_sender"]) or (
+        message["recipient_id"] == current_id and message["hidden_for_recipient"]
+    ):
+        abort(404)
+    contact_id = message["recipient_id"] if message["sender_id"] == current_id else message["sender_id"]
+    action = request.form.get("action", "").strip()
+
+    if action == "edit":
+        if message["sender_id"] != current_id:
+            abort(403)
+        new_body = request.form.get("body", "").strip()
+        if not new_body or len(new_body) > 5000:
+            flash("Edited messages must contain between 1 and 5,000 characters.", "error")
+        else:
+            conn.execute(
+                "INSERT INTO message_history(message_id,actor_id,action,previous_body) VALUES(?,?,?,?)",
+                (message_id, current_id, "edit", message["body"] or ""),
+            )
+            conn.execute(
+                "UPDATE messages SET body=?, edited_at=CURRENT_TIMESTAMP WHERE id=? AND sender_id=?",
+                (new_body, message_id, current_id),
+            )
+            conn.commit()
+            flash("Message updated.", "success")
+    elif action == "delete_me":
+        column = "hidden_for_sender" if message["sender_id"] == current_id else "hidden_for_recipient"
+        conn.execute(f"UPDATE messages SET {column}=TRUE WHERE id=?", (message_id,))
+        conn.commit()
+        flash("Message removed from your chat.", "success")
+    elif action == "delete_everyone":
+        if message["sender_id"] != current_id:
+            abort(403)
+        conn.execute(
+            "INSERT INTO message_history(message_id,actor_id,action,previous_body) VALUES(?,?,?,?)",
+            (message_id, current_id, "delete_for_everyone", message["body"] or ""),
+        )
+        conn.execute(
+            """UPDATE messages SET body='', attachment_name='', attachment_path='',
+               attachment_type='', deleted_for_everyone=1 WHERE id=? AND sender_id=?""",
+            (message_id, current_id),
+        )
+        conn.commit()
+        flash("Message deleted for everyone.", "success")
+    elif action == "forward":
+        recipient_raw = request.form.get("recipient_id", "").strip()
+        try:
+            recipient_id = int(recipient_raw)
+        except (TypeError, ValueError):
+            recipient_id = 0
+        allowed_ids = {int(person["id"]) for person in portal_contacts(conn, session["role"])}
+        if recipient_id not in allowed_ids or recipient_id == current_id:
+            abort(403)
+        if not (message["body"] or message["attachment_path"]):
+            flash("This message cannot be forwarded.", "error")
+        else:
+            forwarded_body = message["body"] or ""
+            conn.execute(
+                """INSERT INTO messages(sender_id,recipient_id,body,attachment_name,attachment_path,
+                   attachment_type,delivered_at,forwarded_from_id)
+                   VALUES(?,?,?,?,?,?,NULL,?)""",
+                (current_id, recipient_id, forwarded_body, message["attachment_name"] or "",
+                 message["attachment_path"] or "", message["attachment_type"] or "", message_id),
+            )
+            conn.commit()
+            flash("Message forwarded.", "success")
+            return redirect(url_for("message_conversation", contact_id=recipient_id))
+    else:
+        abort(400)
+    return redirect(url_for("message_conversation", contact_id=contact_id))
 
 
 @app.route("/messages/attachment/<path:filename>")
@@ -717,6 +937,47 @@ def staff_dashboard():
         recipients=portal_contacts(conn, "staff")
     )
 
+@app.route("/admin/directory/<string:kind>")
+@roles("admin")
+def admin_directory(kind):
+    role_map = {"students": "student", "staff": "staff", "parents": "parent"}
+    if kind not in {"students", "staff", "parents", "courses"}:
+        abort(404)
+    page = max(1, request.args.get("page", 1, type=int) or 1)
+    per_page = 25
+    query = request.args.get("q", "").strip()[:100]
+    status = request.args.get("status", "active")
+    if status not in {"active", "inactive", "all"}:
+        status = "active"
+    conn = db()
+    if kind == "courses":
+        where = " WHERE (LOWER(name) LIKE ? OR LOWER(COALESCE(description,'')) LIKE ?)" if query else ""
+        params = [f"%{query.casefold()}%", f"%{query.casefold()}%"] if query else []
+        total = conn.execute("SELECT COUNT(*) AS n FROM courses" + where, params).fetchone()["n"]
+        pages = max(1, math.ceil(total / per_page))
+        page = min(page, pages)
+        rows = conn.execute("SELECT id, name, description, created_at FROM courses" + where +
+            " ORDER BY name LIMIT ? OFFSET ?", params + [per_page, (page - 1) * per_page]).fetchall()
+    else:
+        role = role_map[kind]
+        clauses = ["role=?"]
+        params = [role]
+        if status != "all":
+            clauses.append("is_active=?")
+            params.append(status == "active")
+        if query:
+            clauses.append("(LOWER(display_name) LIKE ? OR LOWER(username) LIKE ?)")
+            params.extend([f"%{query.casefold()}%", f"%{query.casefold()}%"])
+        where = " WHERE " + " AND ".join(clauses)
+        total = conn.execute("SELECT COUNT(*) AS n FROM users" + where, params).fetchone()["n"]
+        pages = max(1, math.ceil(total / per_page))
+        page = min(page, pages)
+        rows = conn.execute("SELECT id, username, display_name, role, is_active FROM users" + where +
+            " ORDER BY display_name LIMIT ? OFFSET ?", params + [per_page, (page - 1) * per_page]).fetchall()
+    return render_template("admin_directory.html", kind=kind, rows=rows, total=total,
+        page=page, pages=pages, per_page=per_page, query=query, status=status)
+
+
 @app.route("/admin", methods=["GET","POST"])
 @roles("admin")
 def admin_dashboard():
@@ -763,7 +1024,8 @@ def admin_dashboard():
     students = conn.execute("SELECT id, username, display_name FROM users WHERE role='student' AND is_active=TRUE ORDER BY display_name").fetchall()
     staff_accounts = conn.execute("SELECT id, username, display_name FROM users WHERE role='staff' AND is_active=TRUE ORDER BY display_name").fetchall()
     parent_accounts = conn.execute("SELECT id, username, display_name FROM users WHERE role='parent' AND is_active=TRUE ORDER BY display_name").fetchall()
-    accounts = conn.execute("SELECT id, username, display_name, role, is_active FROM users ORDER BY role, display_name").fetchall()
+    accounts_total = conn.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"]
+    accounts = conn.execute("SELECT id, username, display_name, role, is_active FROM users ORDER BY role, display_name LIMIT 8").fetchall()
     admin_assignments = conn.execute("SELECT a.*, cl.name AS class_name, u.display_name AS teacher_name FROM assignments a JOIN classes cl ON cl.id=a.class_id LEFT JOIN users u ON u.id=cl.teacher_id ORDER BY a.created_at DESC").fetchall()
     portal_messages = conn.execute("SELECT m.*, u.display_name AS sender_name, u.role AS sender_role, r.display_name AS recipient_name FROM messages m JOIN users u ON u.id=m.sender_id JOIN users r ON r.id=m.recipient_id WHERE m.recipient_id=? OR m.sender_id=? ORDER BY m.created_at ASC LIMIT 50", (session["user_id"], session["user_id"])).fetchall()
     classes = conn.execute("SELECT cl.*, u.display_name AS teacher_name FROM classes cl LEFT JOIN users u ON u.id=cl.teacher_id ORDER BY cl.id DESC").fetchall()
@@ -771,7 +1033,7 @@ def admin_dashboard():
                            enrollment_count=enrollment_count, pending_enrollments=pending_enrollments,
                            enrollments=enrollments, user_counts=user_counts, students=students,
                            staff_accounts=staff_accounts, parent_accounts=parent_accounts, classes=classes,
-                           accounts=accounts, admin_assignments=admin_assignments,
+                           accounts=accounts, accounts_total=accounts_total, admin_assignments=admin_assignments,
                            portal_messages=portal_messages, recipients=portal_contacts(conn, "admin"))
 
 @app.route("/admin/accounts/<int:user_id>/update", methods=["POST"])

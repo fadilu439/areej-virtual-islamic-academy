@@ -20,7 +20,7 @@ def clean_database():
     with app_module.app.app_context():
         conn = app_module.db()
         for table in (
-            "assignment_submissions", "attendance", "results", "assignments",
+            "message_history", "assignment_submissions", "attendance", "results", "assignments",
             "learning_materials", "announcements", "parent_links", "user_preferences",
             "enrollments_academic", "classes", "messages", "enrollments",
             "courses", "login_attempts", "users",
@@ -399,3 +399,191 @@ def test_disabling_read_receipts_keeps_sender_from_seeing_read_tick(client):
     with app_module.app.app_context():
         state = app_module.db().execute("SELECT is_read, read_at FROM messages").fetchone()
         assert state["is_read"] == 1 and state["read_at"] is None
+
+
+def test_profile_picture_upload_is_saved_to_the_signed_in_users_own_account(client):
+    from io import BytesIO
+    from werkzeug.datastructures import FileStorage
+
+    token = csrf_token(client)
+    with client.session_transaction() as session:
+        session.update(user_id=2, username="student-test", role="student", csrf_token=token)
+
+    response = client.post(
+        "/settings",
+        data={
+            "csrf_token": token,
+            "display_name": "Test Student",
+            "theme": "light",
+            "profile_picture": (BytesIO(b"\x89PNG\r\n\x1a\nprofile-test"), "student.png", "image/png"),
+        },
+        content_type="multipart/form-data",
+    )
+    assert response.status_code == 302
+    with app_module.app.app_context():
+        user = app_module.db().execute(
+            "SELECT profile_picture FROM users WHERE id=?", (2,)
+        ).fetchone()
+        assert user["profile_picture"]
+        assert user["profile_picture"].endswith(".png")
+
+
+def test_profile_picture_route_requires_authenticated_portal_user(client):
+    response = client.get("/profile/avatar/2")
+    assert response.status_code == 302
+    assert "/login" in response.headers["Location"]
+
+
+def test_help_center_is_available_to_student_and_role_specific(client):
+    with client.session_transaction() as session:
+        session.update(user_id=2, username="student-test", role="student", csrf_token="student-csrf")
+    response = client.get("/help")
+    assert response.status_code == 200
+    assert b"Your Student Dashboard" in response.data
+    assert b"Your Parent Dashboard" not in response.data
+
+
+def test_help_center_search_filters_role_specific_articles(client):
+    with client.session_transaction() as session:
+        session.update(user_id=2, username="student-test", role="student", csrf_token="student-csrf")
+    response = client.get("/help?q=examinations")
+    assert response.status_code == 200
+    assert b"Assignments and examinations" in response.data
+    assert b"Joining lessons" not in response.data
+
+
+
+def test_sender_can_edit_own_message_and_history_is_preserved(client):
+    with app_module.app.app_context():
+        conn = app_module.db()
+        conn.execute("INSERT INTO messages(sender_id,recipient_id,body) VALUES(1,2,'Original text')")
+        conn.commit()
+        message_id = conn.execute("SELECT id FROM messages ORDER BY id DESC LIMIT 1").fetchone()["id"]
+    with client.session_transaction() as session:
+        session.update(user_id=1, username="admin-test", role="admin", csrf_token="test-csrf")
+    response = client.post(f"/messages/{message_id}/action", data={
+        "csrf_token": "test-csrf", "action": "edit", "body": "Corrected text"
+    })
+    assert response.status_code == 302
+    with app_module.app.app_context():
+        conn = app_module.db()
+        assert conn.execute("SELECT body FROM messages WHERE id=?", (message_id,)).fetchone()["body"] == "Corrected text"
+        history = conn.execute("SELECT action, previous_body FROM message_history WHERE message_id=?", (message_id,)).fetchone()
+        assert history["action"] == "edit"
+        assert history["previous_body"] == "Original text"
+
+
+def test_recipient_cannot_edit_another_users_message(client):
+    with app_module.app.app_context():
+        conn = app_module.db()
+        conn.execute("INSERT INTO messages(sender_id,recipient_id,body) VALUES(1,2,'Sender text')")
+        conn.commit()
+        message_id = conn.execute("SELECT id FROM messages ORDER BY id DESC LIMIT 1").fetchone()["id"]
+    with client.session_transaction() as session:
+        session.update(user_id=2, username="student-test", role="student", csrf_token="student-csrf")
+    response = client.post(f"/messages/{message_id}/action", data={
+        "csrf_token": "student-csrf", "action": "edit", "body": "Tampered text"
+    })
+    assert response.status_code == 403
+    with app_module.app.app_context():
+        assert app_module.db().execute("SELECT body FROM messages WHERE id=?", (message_id,)).fetchone()["body"] == "Sender text"
+
+
+def test_sender_can_delete_message_for_everyone_with_audit_history(client):
+    with app_module.app.app_context():
+        conn = app_module.db()
+        conn.execute("INSERT INTO messages(sender_id,recipient_id,body) VALUES(1,2,'Sensitive old text')")
+        conn.commit()
+        message_id = conn.execute("SELECT id FROM messages ORDER BY id DESC LIMIT 1").fetchone()["id"]
+    with client.session_transaction() as session:
+        session.update(user_id=1, username="admin-test", role="admin", csrf_token="test-csrf")
+    response = client.post(f"/messages/{message_id}/action", data={
+        "csrf_token": "test-csrf", "action": "delete_everyone"
+    })
+    assert response.status_code == 302
+    with app_module.app.app_context():
+        conn = app_module.db()
+        row = conn.execute("SELECT body, deleted_for_everyone FROM messages WHERE id=?", (message_id,)).fetchone()
+        assert row["body"] == ""
+        assert row["deleted_for_everyone"] in (1, True)
+        history = conn.execute("SELECT action, previous_body FROM message_history WHERE message_id=?", (message_id,)).fetchone()
+        assert history["action"] == "delete_for_everyone"
+        assert history["previous_body"] == "Sensitive old text"
+
+
+def test_user_can_hide_message_from_own_chat_only(client):
+    with app_module.app.app_context():
+        conn = app_module.db()
+        conn.execute("INSERT INTO messages(sender_id,recipient_id,body) VALUES(1,2,'Keep for recipient')")
+        conn.commit()
+        message_id = conn.execute("SELECT id FROM messages ORDER BY id DESC LIMIT 1").fetchone()["id"]
+    with client.session_transaction() as session:
+        session.update(user_id=1, username="admin-test", role="admin", csrf_token="test-csrf")
+    response = client.post(f"/messages/{message_id}/action", data={
+        "csrf_token": "test-csrf", "action": "delete_me"
+    })
+    assert response.status_code == 302
+    with app_module.app.app_context():
+        row = app_module.db().execute("SELECT hidden_for_sender, hidden_for_recipient FROM messages WHERE id=?", (message_id,)).fetchone()
+        assert row["hidden_for_sender"] in (1, True)
+        assert row["hidden_for_recipient"] in (0, False)
+
+
+
+def test_admin_directory_search_is_paginated_and_role_scoped(client):
+    with app_module.app.app_context():
+        conn = app_module.db()
+        for index in range(30):
+            conn.execute(
+                "INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+                (f"directory-{index}", generate_password_hash("password 1234"), "student", f"Directory Student {index:02d}"),
+            )
+        conn.commit()
+    with client.session_transaction() as session:
+        session.update(user_id=1, username="admin-test", role="admin", csrf_token="test-csrf")
+    first = client.get("/admin/directory/students")
+    assert first.status_code == 200
+    assert b"Page 1 of 2" in first.data
+    assert b"Directory Student 00" in first.data
+    assert b"Directory Student 29" not in first.data
+    second = client.get("/admin/directory/students?page=2")
+    assert second.status_code == 200
+    assert b"Directory Student 29" in second.data
+    search = client.get("/admin/directory/students?q=Directory%20Student%2029")
+    assert search.status_code == 200
+    assert b"Directory Student 29" in search.data
+    assert b"admin-test" not in search.data
+
+
+def test_non_admin_cannot_open_admin_directory(client):
+    with client.session_transaction() as session:
+        session.update(user_id=2, username="student-test", role="student", csrf_token="student-csrf")
+    assert client.get("/admin/directory/students").status_code == 403
+
+
+
+def test_user_can_forward_visible_message_only_to_authorized_contact(client):
+    with app_module.app.app_context():
+        conn = app_module.db()
+        conn.execute(
+            "INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+            ("second-student", generate_password_hash("second student password"), "student", "Second Student"),
+        )
+        second_student_id = conn.execute("SELECT id FROM users WHERE username='second-student'").fetchone()["id"]
+        conn.execute("INSERT INTO messages(sender_id,recipient_id,body) VALUES(2,1,'Please share this lesson note')")
+        conn.commit()
+        source_id = conn.execute("SELECT id FROM messages ORDER BY id DESC LIMIT 1").fetchone()["id"]
+    with client.session_transaction() as session:
+        session.update(user_id=1, username="admin-test", role="admin", csrf_token="test-csrf")
+    response = client.post(f"/messages/{source_id}/action", data={
+        "csrf_token": "test-csrf", "action": "forward", "recipient_id": str(second_student_id)
+    })
+    assert response.status_code == 302
+    with app_module.app.app_context():
+        forwarded = app_module.db().execute(
+            "SELECT sender_id, recipient_id, body, forwarded_from_id FROM messages WHERE recipient_id=? ORDER BY id DESC LIMIT 1",
+            (second_student_id,),
+        ).fetchone()
+        assert forwarded["sender_id"] == 1
+        assert forwarded["body"] == "Please share this lesson note"
+        assert forwarded["forwarded_from_id"] == source_id
