@@ -682,11 +682,35 @@ def help_center():
             ("Profile and account security", "Open Settings to update your display name, profile picture and password.")
         ]
     }[role]
+    faqs_by_role = {
+        "admin": [
+            ("Who confirms student payments?", "The Administrator/Director confirms payments."),
+            ("How do I protect an account?", "Use account controls carefully, keep administrator passwords private and deactivate accounts only when appropriate."),
+            ("Where can I review student performance?", "Use the academic records and results sections in the Admin Portal.")
+        ],
+        "staff": [
+            ("Which students can I access?", "Only students enrolled in classes assigned to you should appear in your Staff Portal."),
+            ("What is the minimum passing mark?", "The academy minimum passing mark is 70 percent."),
+            ("Who can help with an account issue?", "Contact an authorised academy administrator through Message Centre.")
+        ],
+        "student": [
+            ("How long is each lesson?", "Each lesson lasts 40 minutes."),
+            ("What is the minimum passing mark?", "You need at least 70 percent to pass an examination."),
+            ("Can I change my profile picture?", "Yes. Open Settings and upload a JPG, PNG or WebP image up to 5 MB.")
+        ],
+        "parent": [
+            ("How can I check my child's progress?", "Open the Parent Dashboard to review linked children, attendance and available results."),
+            ("Who confirms payments?", "The Administrator/Director confirms payments."),
+            ("Is there a family discount?", "When five children from one family enrol, the family pays for four; the fifth child is free.")
+        ]
+    }
     query = request.args.get("q", "").strip().casefold()
     articles = [{"title": title, "body": body} for title, body in guides]
+    faqs = [{"question": question, "answer": answer} for question, answer in faqs_by_role[role]]
     if query:
         articles = [item for item in articles if query in item["title"].casefold() or query in item["body"].casefold()]
-    return render_template("help_center.html", articles=articles, search_query=request.args.get("q", ""))
+        faqs = [item for item in faqs if query in item["question"].casefold() or query in item["answer"].casefold()]
+    return render_template("help_center.html", articles=articles, faqs=faqs, search_query=request.args.get("q", ""))
 
 
 @app.route("/messages/send", methods=["POST"])
