@@ -163,7 +163,7 @@ def init_db():
                 raise RuntimeError("Apply migration 007_areej_message_actions.sql before deploying this version.")
             profile_columns = conn.execute("""SELECT COUNT(*) AS n FROM information_schema.columns
                 WHERE table_schema='areej_app' AND table_name='users'
-                AND column_name IN ('age','date_of_birth','gender','country','state','phone','email','bio','profile_visibility','show_location')""").fetchone()
+                AND column_name IN ('age','date_of_birth','gender','country','state','phone','email','guardian_name','programme','bio','profile_visibility','show_location')""").fetchone()
             if profile_columns["n"] != 12:
                 raise RuntimeError("Apply migration 008_areej_student_profiles.sql before deploying this version.")
         finally:
