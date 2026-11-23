@@ -16,6 +16,10 @@
 <section class="panel"><small>MY COURSES</small><h2>Courses</h2>
 {% if courses %}<div class="mini-list">{% for c in courses %}<div><strong>{{ c.name }}</strong><span>{{ c.description or 'Course information will be shared by your teacher.' }}</span></div>{% endfor %}</div>{% else %}<p class="muted">No course enrolment has been added yet.</p>{% endif %}
 </section></div>
+<section class="panel"><small>CLASSWORK</small><h2>Assignments & Submission Feedback</h2>
+{% if assignments %}<div class="mini-list">{% for a in assignments %}<div><strong>{{ a.title }} · {{ a.class_name }}</strong><span>Due {{ a.due_date or 'No due date' }} · {{ a.submission_status|default('Not submitted', true)|title }}{% if a.score is not none %} · Mark: {{ a.score }}{% endif %}</span>{% if a.feedback %}<p>Teacher feedback: {{ a.feedback }}</p>{% endif %}
+<details class="portal-details"><summary>Submit / update work</summary><form class="course-form" method="post" action="{{ url_for('submit_assignment') }}" enctype="multipart/form-data"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="assignment_id" value="{{ a.id }}"><label>Your response</label><textarea name="content" rows="3"></textarea><label>Attach file</label><input type="file" name="submission_file"><button class="btn primary">Submit work</button></form></details></div>{% endfor %}</div>{% else %}<p class="muted">No assignments have been assigned to your enrolled classes.</p>{% endif %}
+</section>
 <div class="columns">
 <section class="panel"><small>ASSESSMENTS</small><h2>Results & Feedback</h2>
 {% if results %}<div class="mini-list">{% for r in results %}<div><strong>{{ r.assessment }} · {{ r.class_name }}</strong><span>{{ r.score }}/{{ r.maximum_score }} · {{ r.created_at }}{% if r.feedback %} · {{ r.feedback }}{% endif %}</span></div>{% endfor %}</div>{% else %}<p class="muted">Results will appear after your teacher records an assessment.</p>{% endif %}
