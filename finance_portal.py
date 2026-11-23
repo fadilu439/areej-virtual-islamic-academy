@@ -127,13 +127,19 @@ def register_finance_routes(app, db, roles, save_upload, read_upload, upload_fol
         if payment["status"]!="pending":
             flash("This payment has already been reviewed.", "error")
             return redirect(url_for("finance_portal"))
+        if decision=="confirmed":
+            totals=conn.execute("SELECT COALESCE(SUM(amount),0) AS total FROM payments WHERE invoice_id=? AND status='confirmed'",(payment["invoice_id"],)).fetchone()["total"]
+            invoice=conn.execute("SELECT amount FROM invoices WHERE id=?",(payment["invoice_id"],)).fetchone()
+            if float(totals or 0)+float(payment["amount"])>float(invoice["amount"]):
+                flash("This payment would exceed the remaining invoice balance. Review the payment before confirming.", "error")
+                return redirect(url_for("finance_portal"))
         receipt=("AREEJ-"+str(payment_id)+"-"+secrets.token_hex(3).upper()) if decision=="confirmed" else None
         conn.execute("""UPDATE payments SET status=?,reviewed_by=?,reviewed_at=CURRENT_TIMESTAMP,receipt_number=?
             WHERE id=? AND status='pending'""",(decision,session["user_id"],receipt,payment_id))
         if decision=="confirmed":
             totals=conn.execute("SELECT COALESCE(SUM(amount),0) AS total FROM payments WHERE invoice_id=? AND status='confirmed'",(payment["invoice_id"],)).fetchone()["total"]
             invoice=conn.execute("SELECT amount FROM invoices WHERE id=?",(payment["invoice_id"],)).fetchone()
-            new_status="paid" if float(totals or 0)+float(payment["amount"])>=float(invoice["amount"]) else "partial"
+            new_status="paid" if float(totals or 0)>=float(invoice["amount"]) else "partial"
             conn.execute("UPDATE invoices SET status=? WHERE id=?",(new_status,payment["invoice_id"]))
         conn.commit()
         flash("Payment "+decision+". "+("Official receipt generated." if receipt else "No receipt was issued."), "success")
