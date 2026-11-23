@@ -118,6 +118,46 @@ def test_login_attempts_migration_creates_private_table_and_index():
         conn.execute("DROP SCHEMA areej_app CASCADE")
 
 
+def test_academic_reports_migration_adds_reports_and_submission_review_fields():
+    import psycopg
+
+    migration = (
+        Path(__file__).resolve().parents[1]
+        / "migrations"
+        / "009_areej_academic_reports.sql"
+    )
+    with psycopg.connect(DATABASE_URL) as conn:
+        conn.execute("DROP SCHEMA IF EXISTS areej_app CASCADE")
+        conn.execute("CREATE SCHEMA areej_app")
+        conn.execute("""
+            DO $
+            BEGIN
+                IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
+                    CREATE ROLE service_role NOLOGIN;
+                END IF;
+            END
+            $;
+        """)
+        conn.execute("CREATE TABLE areej_app.users (id bigserial PRIMARY KEY)")
+        conn.execute("CREATE TABLE areej_app.classes (id bigserial PRIMARY KEY)")
+        conn.execute("CREATE TABLE areej_app.assignment_submissions (id bigserial PRIMARY KEY)")
+        for statement in migration.read_text(encoding="utf-8").split(";"):
+            if statement.strip():
+                conn.execute(statement)
+        columns = {
+            row[0] for row in conn.execute(
+                "SELECT column_name FROM information_schema.columns WHERE table_schema='areej_app' AND table_name='assignment_submissions'"
+            ).fetchall()
+        }
+        assert {"score","feedback","status","reviewed_by","reviewed_at"}.issubset(columns)
+        reports = conn.execute(
+            "SELECT table_name FROM information_schema.tables WHERE table_schema='areej_app' AND table_name='academic_reports'"
+        ).fetchone()
+        assert reports is not None
+        conn.execute("DROP SCHEMA areej_app CASCADE")
+        conn.commit()
+
+
 def test_student_profiles_migration_adds_private_and_public_profile_fields():
     import psycopg
 
