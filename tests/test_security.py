@@ -444,6 +444,38 @@ def test_parent_cannot_submit_payment_for_unlinked_student_invoice(client):
     assert response.status_code==404
 
 
+def test_staff_can_grade_only_submissions_from_owned_classes(client):
+    with app_module.app.app_context():
+        conn=app_module.db()
+        staff_id=conn.execute("INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+            ("marker-teacher",generate_password_hash("teacher password 123"),"staff","Marker Teacher")).lastrowid
+        other_staff=conn.execute("INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+            ("other-marker",generate_password_hash("teacher password 123"),"staff","Other Marker")).lastrowid
+        student_id=conn.execute("SELECT id FROM users WHERE username=?",("student-test",)).fetchone()["id"]
+        own_class=conn.execute("INSERT INTO classes(teacher_id,name) VALUES(?,?)",(staff_id,"Marking Class")).lastrowid
+        foreign_class=conn.execute("INSERT INTO classes(teacher_id,name) VALUES(?,?)",(other_staff,"Foreign Class")).lastrowid
+        own_assignment=conn.execute("INSERT INTO assignments(class_id,title) VALUES(?,?)",(own_class,"Own Assignment")).lastrowid
+        foreign_assignment=conn.execute("INSERT INTO assignments(class_id,title) VALUES(?,?)",(foreign_class,"Foreign Assignment")).lastrowid
+        own_submission=conn.execute("INSERT INTO assignment_submissions(assignment_id,student_id,content) VALUES(?,?,?)",(own_assignment,student_id,"My answer")).lastrowid
+        foreign_submission=conn.execute("INSERT INTO assignment_submissions(assignment_id,student_id,content) VALUES(?,?,?)",(foreign_assignment,student_id,"Private answer")).lastrowid
+        conn.commit()
+    with client.session_transaction() as session:
+        session.update(user_id=staff_id,username="marker-teacher",role="staff",csrf_token="marking-csrf")
+    saved=client.post(f"/staff/submissions/{own_submission}/grade",data={
+        "csrf_token":"marking-csrf","score":"8","maximum_score":"10","feedback":"Good work."
+    })
+    assert saved.status_code==302
+    denied=client.post(f"/staff/submissions/{foreign_submission}/grade",data={
+        "csrf_token":"marking-csrf","score":"8","maximum_score":"10","feedback":"Not yours."
+    })
+    assert denied.status_code==403
+    with app_module.app.app_context():
+        marked=app_module.db().execute("SELECT score,feedback,status FROM assignment_submissions WHERE id=?",(own_submission,)).fetchone()
+        assert marked["score"]==8
+        assert marked["feedback"]=="Good work."
+        assert marked["status"]=="graded"
+
+
 def test_health_endpoint_checks_database(client):
     response = client.get("/health")
     assert response.status_code == 200
