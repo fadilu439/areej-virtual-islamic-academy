@@ -148,6 +148,7 @@ def test_academic_reports_migration_adds_reports_and_submission_review_fields():
             "SELECT table_name FROM information_schema.tables WHERE table_schema='areej_app' AND table_name='academic_reports'"
         ).fetchone()
         assert reports is not None
+        assert conn.execute("SELECT relrowsecurity FROM pg_class WHERE oid='areej_app.academic_reports'::regclass").fetchone()[0] is True
         conn.execute("DROP SCHEMA areej_app CASCADE")
         conn.commit()
 
@@ -173,6 +174,8 @@ def test_private_finance_migration_creates_unseeded_tables_and_restricts_client_
         }
         assert {"finance_settings","invoices","payments"}.issubset(tables)
         assert conn.execute("SELECT COUNT(*) FROM areej_app.finance_settings").fetchone()[0] == 0
+        for table in ("finance_settings","invoices","payments"):
+            assert conn.execute("SELECT relrowsecurity FROM pg_class WHERE oid=%s::regclass", (f"areej_app.{table}",)).fetchone()[0] is True
         for role in ("anon","authenticated"):
             assert not conn.execute("SELECT has_table_privilege(%s,'areej_app.invoices','SELECT')",(role,)).fetchone()[0]
             assert not conn.execute("SELECT has_table_privilege(%s,'areej_app.payments','SELECT')",(role,)).fetchone()[0]
