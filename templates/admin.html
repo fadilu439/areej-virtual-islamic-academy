@@ -15,9 +15,18 @@
   <article><small>Accounts</small><strong>{{ user_counts.get('student',0) + user_counts.get('staff',0) + user_counts.get('parent',0) }}</strong><p>Registered users</p></article>
 </section>
 
+<section class="panel">
+  <small>QUICK ACCESS</small><h2>Browse Academy Records</h2>
+  <div class="directory-links">
+    <a class="btn" href="{{ url_for('admin_directory', kind='students') }}">View All Students →</a>
+    <a class="btn" href="{{ url_for('admin_directory', kind='staff') }}">View All Staff →</a>
+    <a class="btn" href="{{ url_for('admin_directory', kind='parents') }}">View All Parents →</a>
+    <a class="btn" href="{{ url_for('admin_directory', kind='courses') }}">View All Courses →</a>
+  </div>
+</section>
 
 <section class="panel" id="accounts">
-  <div class="panel-head"><div><small>ACCOUNT CONTROL</small><h2>Manage All Accounts</h2><p class="muted">Edit names, usernames and passwords, or deactivate and restore accounts without deleting their academic history.</p></div><span class="pill">{{ accounts|length }} accounts</span></div>
+  <div class="panel-head"><div><small>ACCOUNT CONTROL</small><h2>Manage All Accounts</h2><p class="muted">Edit names, usernames and passwords, or deactivate and restore accounts without deleting their academic history.</p></div><span class="pill">{{ accounts_total }} accounts</span></div>
   {% if accounts %}<div class="table-wrap"><table><thead><tr><th>User</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead><tbody>
   {% for account in accounts %}<tr><td><b>{{ account.display_name }}</b><br><small>@{{ account.username }}</small></td><td>{{ account.role|title }}</td><td>{{ 'Active' if account.is_active else 'Deactivated' }}</td><td>
     <details class="portal-details"><summary>Edit account</summary><form class="course-form" method="post" action="{{ url_for('admin_update_account', user_id=account.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><label>Full name</label><input name="display_name" value="{{ account.display_name }}" maxlength="100" required><label>Username</label><input name="username" value="{{ account.username }}" maxlength="60" required><label>New password (leave blank to keep current)</label><input name="new_password" type="password" minlength="8" autocomplete="new-password"><button class="btn primary" type="submit">Save Changes</button></form></details>
