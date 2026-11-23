@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}Payment Receipt | Areej Academy{% endblock %}
+{% block heading %}Official Payment Receipt{% endblock %}
+{% block content %}
+<section class="panel" style="max-width:760px;margin:24px auto;padding:32px">
+<div style="display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap"><div><small>AREEJ VIRTUAL ISLAMIC ACADEMY</small><h2>Payment Receipt</h2></div><strong>{{ receipt.receipt_number }}</strong></div>
+<hr>
+<p><b>Receipt number:</b> {{ receipt.receipt_number }}</p>
+<p><b>Student:</b> {{ receipt.student_name }}</p>
+<p><b>Invoice:</b> {{ receipt.invoice_title }}</p>
+<p><b>Invoice total:</b> {{ receipt.currency }} {{ '%.2f'|format(receipt.invoice_amount) }}</p>
+<p><b>Payment received:</b> {{ receipt.currency }} {{ '%.2f'|format(receipt.amount) }}</p>
+<p><b>Payment date:</b> {{ receipt.reviewed_at or receipt.created_at }}</p>
+<p><b>Payment method:</b> Manual transfer</p>
+<p><b>Payment status:</b> Confirmed by the academy</p>
+<hr>
+<p class="muted">This receipt confirms that the academy has reviewed and confirmed the payment shown above. Keep this receipt for your records.</p>
+<button class="btn primary" type="button" onclick="window.print()">Print Receipt</button>
+<a class="btn" href="{{ url_for('finance_portal') }}">Back to Finance</a>
+</section>
+{% endblock %}
