@@ -920,6 +920,45 @@ def staff_dashboard():
         recipients=portal_contacts(conn, "staff")
     )
 
+@app.route("/admin/directory/<string:kind>")
+@roles("admin")
+def admin_directory(kind):
+    role_map = {"students": "student", "staff": "staff", "parents": "parent"}
+    if kind not in {"students", "staff", "parents", "courses"}:
+        abort(404)
+    page = max(1, request.args.get("page", 1, type=int) or 1)
+    per_page = 25
+    query = request.args.get("q", "").strip()[:100]
+    status = request.args.get("status", "active")
+    if status not in {"active", "inactive", "all"}:
+        status = "active"
+    conn = db()
+    if kind == "courses":
+        where = " WHERE (LOWER(name) LIKE ? OR LOWER(COALESCE(description,'')) LIKE ?)" if query else ""
+        params = [f"%{query.casefold()}%", f"%{query.casefold()}%"] if query else []
+        total = conn.execute("SELECT COUNT(*) AS n FROM courses" + where, params).fetchone()["n"]
+        rows = conn.execute("SELECT id, name, description, created_at FROM courses" + where +
+            " ORDER BY name LIMIT ? OFFSET ?", params + [per_page, (page - 1) * per_page]).fetchall()
+    else:
+        role = role_map[kind]
+        clauses = ["role=?"]
+        params = [role]
+        if status != "all":
+            clauses.append("is_active=?")
+            params.append(status == "active")
+        if query:
+            clauses.append("(LOWER(display_name) LIKE ? OR LOWER(username) LIKE ?)")
+            params.extend([f"%{query.casefold()}%", f"%{query.casefold()}%"])
+        where = " WHERE " + " AND ".join(clauses)
+        total = conn.execute("SELECT COUNT(*) AS n FROM users" + where, params).fetchone()["n"]
+        rows = conn.execute("SELECT id, username, display_name, role, is_active FROM users" + where +
+            " ORDER BY display_name LIMIT ? OFFSET ?", params + [per_page, (page - 1) * per_page]).fetchall()
+    pages = max(1, math.ceil(total / per_page))
+    page = min(page, pages)
+    return render_template("admin_directory.html", kind=kind, rows=rows, total=total,
+        page=page, pages=pages, per_page=per_page, query=query, status=status)
+
+
 @app.route("/admin", methods=["GET","POST"])
 @roles("admin")
 def admin_dashboard():
@@ -966,7 +1005,8 @@ def admin_dashboard():
     students = conn.execute("SELECT id, username, display_name FROM users WHERE role='student' AND is_active=TRUE ORDER BY display_name").fetchall()
     staff_accounts = conn.execute("SELECT id, username, display_name FROM users WHERE role='staff' AND is_active=TRUE ORDER BY display_name").fetchall()
     parent_accounts = conn.execute("SELECT id, username, display_name FROM users WHERE role='parent' AND is_active=TRUE ORDER BY display_name").fetchall()
-    accounts = conn.execute("SELECT id, username, display_name, role, is_active FROM users ORDER BY role, display_name").fetchall()
+    accounts_total = conn.execute("SELECT COUNT(*) AS n FROM users").fetchone()["n"]
+    accounts = conn.execute("SELECT id, username, display_name, role, is_active FROM users ORDER BY role, display_name LIMIT 8").fetchall()
     admin_assignments = conn.execute("SELECT a.*, cl.name AS class_name, u.display_name AS teacher_name FROM assignments a JOIN classes cl ON cl.id=a.class_id LEFT JOIN users u ON u.id=cl.teacher_id ORDER BY a.created_at DESC").fetchall()
     portal_messages = conn.execute("SELECT m.*, u.display_name AS sender_name, u.role AS sender_role, r.display_name AS recipient_name FROM messages m JOIN users u ON u.id=m.sender_id JOIN users r ON r.id=m.recipient_id WHERE m.recipient_id=? OR m.sender_id=? ORDER BY m.created_at ASC LIMIT 50", (session["user_id"], session["user_id"])).fetchall()
     classes = conn.execute("SELECT cl.*, u.display_name AS teacher_name FROM classes cl LEFT JOIN users u ON u.id=cl.teacher_id ORDER BY cl.id DESC").fetchall()
@@ -974,7 +1014,7 @@ def admin_dashboard():
                            enrollment_count=enrollment_count, pending_enrollments=pending_enrollments,
                            enrollments=enrollments, user_counts=user_counts, students=students,
                            staff_accounts=staff_accounts, parent_accounts=parent_accounts, classes=classes,
-                           accounts=accounts, admin_assignments=admin_assignments,
+                           accounts=accounts, accounts_total=accounts_total, admin_assignments=admin_assignments,
                            portal_messages=portal_messages, recipients=portal_contacts(conn, "admin"))
 
 @app.route("/admin/accounts/<int:user_id>/update", methods=["POST"])
