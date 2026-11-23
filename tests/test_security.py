@@ -393,6 +393,41 @@ def test_student_finance_view_is_limited_to_own_invoices_and_parent_to_linked_ch
     assert b"Private Invoice" not in parent_page.data
 
 
+def test_manual_payment_proof_requires_admin_confirmation_before_receipt(client):
+    from io import BytesIO
+    with app_module.app.app_context():
+        conn=app_module.db()
+        student_id=conn.execute("SELECT id FROM users WHERE username=?",("student-test",)).fetchone()["id"]
+        conn.execute("INSERT INTO finance_settings(id,currency,fees_enabled) VALUES(1,'NGN',1)")
+        invoice_id=conn.execute("INSERT INTO invoices(student_id,title,amount,currency,created_by) VALUES(?,?,?,?,?)",
+            (student_id,"Installment invoice",5000,"NGN",1)).lastrowid
+        conn.commit()
+    with client.session_transaction() as session:
+        session.update(user_id=student_id,username="student-test",role="student",csrf_token="student-payment")
+    proof=b"\x89PNG\r\n\x1a\n"+"valid test image".encode()
+    submitted=client.post(f"/finance/invoices/{invoice_id}/pay",data={
+        "csrf_token":"student-payment","amount":"2000","reference":"BANK-REF-001",
+        "payment_proof":(BytesIO(proof),"proof.png")
+    },content_type="multipart/form-data")
+    assert submitted.status_code==302
+    with app_module.app.app_context():
+        payment=app_module.db().execute("SELECT id,status,receipt_number FROM payments WHERE invoice_id=?",(invoice_id,)).fetchone()
+        assert payment["status"]=="pending"
+        assert payment["receipt_number"] is None
+    with client.session_transaction() as session:
+        session.update(user_id=1,username="admin-test",role="admin",csrf_token="admin-payment")
+    reviewed=client.post(f"/admin/finance/payments/{payment['id']}/review",data={
+        "csrf_token":"admin-payment","decision":"confirmed"
+    })
+    assert reviewed.status_code==302
+    with app_module.app.app_context():
+        payment=app_module.db().execute("SELECT status,receipt_number FROM payments WHERE id=?",(payment["id"],)).fetchone()
+        invoice=app_module.db().execute("SELECT status FROM invoices WHERE id=?",(invoice_id,)).fetchone()
+        assert payment["status"]=="confirmed"
+        assert payment["receipt_number"].startswith("AREEJ-")
+        assert invoice["status"]=="partial"
+
+
 def test_parent_cannot_submit_payment_for_unlinked_student_invoice(client):
     with app_module.app.app_context():
         conn=app_module.db()
