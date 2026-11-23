@@ -286,6 +286,7 @@ def user_preferences_for(conn, user_id):
 @app.context_processor
 def context_user():
     unread_count = 0
+    profile = None
     preferences = {"theme": "light", "message_notifications": 1, "read_receipts": 1}
     if session.get("user_id"):
         conn = db()
