@@ -20,7 +20,7 @@ def clean_database():
     with app_module.app.app_context():
         conn = app_module.db()
         for table in (
-            "message_history", "academic_reports", "assignment_submissions", "attendance", "results", "assignments",
+            "payments", "invoices", "finance_settings", "message_history", "academic_reports", "assignment_submissions", "attendance", "results", "assignments",
             "learning_materials", "announcements", "parent_links", "user_preferences",
             "enrollments_academic", "classes", "messages", "enrollments",
             "courses", "login_attempts", "users",
@@ -337,6 +337,76 @@ def test_parent_can_only_view_linked_child_progress(client):
     assert allowed.status_code==200
     assert b"Linked Child" in allowed.data
     assert denied.status_code==404
+
+
+def test_finance_starts_disabled_and_admin_controls_private_invoices(client):
+    with app_module.app.app_context():
+        conn=app_module.db()
+        student_id=conn.execute("SELECT id FROM users WHERE username=?",("student-test",)).fetchone()["id"]
+        assert conn.execute("SELECT COUNT(*) AS n FROM invoices").fetchone()["n"]==0
+    with client.session_transaction() as session:
+        session.update(user_id=1,username="admin-test",role="admin",csrf_token="finance-admin")
+    disabled=client.post("/admin/finance/invoices/create",data={
+        "csrf_token":"finance-admin","student_id":str(student_id),"title":"Course invoice","amount":"100"
+    })
+    assert disabled.status_code==302
+    with app_module.app.app_context():
+        assert app_module.db().execute("SELECT COUNT(*) AS n FROM invoices").fetchone()["n"]==0
+    client.post("/admin/finance/settings",data={
+        "csrf_token":"finance-admin","currency":"NGN","fees_enabled":"1"
+    })
+    enabled=client.post("/admin/finance/invoices/create",data={
+        "csrf_token":"finance-admin","student_id":str(student_id),"title":"Private course invoice",
+        "description":"Issued privately","amount":"25000","due_date":"2026-12-01"
+    })
+    assert enabled.status_code==302
+    with app_module.app.app_context():
+        invoice=app_module.db().execute("SELECT amount,currency,status FROM invoices").fetchone()
+        assert invoice["amount"]==25000
+        assert invoice["currency"]=="NGN"
+        assert invoice["status"]=="unpaid"
+
+
+def test_student_finance_view_is_limited_to_own_invoices_and_parent_to_linked_children(client):
+    with app_module.app.app_context():
+        conn=app_module.db()
+        student_id=conn.execute("SELECT id FROM users WHERE username=?",("student-test",)).fetchone()["id"]
+        other_id=conn.execute("INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+            ("finance-other",generate_password_hash("other password 123"),"student","Other Finance Student")).lastrowid
+        parent_id=conn.execute("INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+            ("finance-parent",generate_password_hash("parent password 123"),"parent","Finance Parent")).lastrowid
+        conn.execute("INSERT INTO parent_links(parent_id,student_id) VALUES(?,?)",(parent_id,student_id))
+        conn.execute("INSERT INTO invoices(student_id,title,amount,currency,created_by) VALUES(?,?,?,?,?)",
+            (student_id,"Linked Invoice",1000,"NGN",1))
+        conn.execute("INSERT INTO invoices(student_id,title,amount,currency,created_by) VALUES(?,?,?,?,?)",
+            (other_id,"Private Invoice",2000,"NGN",1))
+        conn.commit()
+    with client.session_transaction() as session:
+        session.update(user_id=student_id,username="student-test",role="student",csrf_token="finance-student")
+    student_page=client.get("/finance")
+    assert b"Linked Invoice" in student_page.data
+    assert b"Private Invoice" not in student_page.data
+    with client.session_transaction() as session:
+        session.update(user_id=parent_id,username="finance-parent",role="parent",csrf_token="finance-parent")
+    parent_page=client.get("/finance")
+    assert b"Linked Invoice" in parent_page.data
+    assert b"Private Invoice" not in parent_page.data
+
+
+def test_parent_cannot_submit_payment_for_unlinked_student_invoice(client):
+    with app_module.app.app_context():
+        conn=app_module.db()
+        other_id=conn.execute("INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+            ("unlinked-invoice",generate_password_hash("other password 123"),"student","Unlinked Student")).lastrowid
+        invoice_id=conn.execute("INSERT INTO invoices(student_id,title,amount,currency,created_by) VALUES(?,?,?,?,?)",
+            (other_id,"Unlinked invoice",1000,"NGN",1)).lastrowid
+        parent_id=conn.execute("INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+            ("unlinked-parent",generate_password_hash("parent password 123"),"parent","Unlinked Parent")).lastrowid
+        conn.commit()
+    with client.session_transaction() as session:
+        session.update(user_id=parent_id,username="unlinked-parent",role="parent",csrf_token="parent-pay")
+    response=client.post(f"/finance/invoices/{invoice_id}/pay",data={"csrf_token":"parent-pay","amount":"100"})
+    assert response.status_code==404
 
 
 def test_health_endpoint_checks_database(client):
