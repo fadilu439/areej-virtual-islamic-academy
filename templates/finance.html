@@ -9,13 +9,23 @@
 <form class="course-form" method="post" action="{{ url_for('finance_settings_update') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 <label>Currency code</label><input name="currency" value="{{ settings.currency if settings else 'NGN' }}" minlength="3" maxlength="3" required>
 <label><input type="checkbox" name="fees_enabled" value="1" {% if settings and settings.fees_enabled %}checked{% endif %}> Enable private invoices and payment records</label>
-<button class="btn primary">Save Private Settings</button></form><p class="muted">No default tuition amount or public price is configured.</p></section>
+<button class="btn primary">Save Private Settings</button></form><p class="muted">No default tuition amount or public price is configured.</p>
+{% if settings and settings.fees_enabled %}<hr><h3>Create a Private Fee Plan</h3>
+<form class="course-form" method="post" action="{{ url_for('finance_create_fee_plan') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<label>Plan title</label><input name="title" maxlength="160" required placeholder="e.g. Arabic Language - Term">
+<label>Programme / Grade (optional)</label><input name="programme" maxlength="120" placeholder="Programme or grade">
+<label>Private amount</label><input type="number" name="amount" min="0.01" step="0.01" required>
+<label>Billing cycle</label><select name="billing_cycle"><option value="one_time">One time</option><option value="monthly">Monthly</option><option value="termly">Termly</option><option value="custom">Custom</option></select>
+<button class="btn primary">Save Private Fee Plan</button></form>
+{% if fee_plans %}<div class="mini-list">{% for p in fee_plans %}<div><strong>{{ p.title }}</strong><span>{{ p.programme }} · {{ p.currency }} {{ '%.2f'|format(p.amount) }} · {{ p.billing_cycle|title }}</span></div>{% endfor %}</div>{% endif %}{% endif %}
+</section>
 <section class="panel"><small>CREATE INVOICE</small><h2>Issue a Private Invoice</h2>
 {% if settings and settings.fees_enabled %}<form class="course-form" method="post" action="{{ url_for('finance_create_invoice') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
 <label>Student</label><select name="student_id" required>{% for s in students %}<option value="{{ s.id }}">{{ s.display_name }}</option>{% endfor %}</select>
-<label>Invoice title</label><input name="title" maxlength="160" required placeholder="Programme or service">
+<label>Use a private fee plan (optional)</label><select name="fee_plan_id"><option value="">Manual invoice amount</option>{% for p in fee_plans %}<option value="{{ p.id }}">{{ p.title }} · {{ p.currency }} {{ '%.2f'|format(p.amount) }}</option>{% endfor %}</select>
+<label>Invoice title (leave blank to use selected plan)</label><input name="title" maxlength="160" placeholder="Programme or service">
 <label>Description</label><textarea name="description" maxlength="2000"></textarea>
-<label>Amount (private)</label><input type="number" name="amount" min="0.01" step="0.01" required>
+<label>Manual amount (required only without a plan)</label><input type="number" name="amount" min="0.01" step="0.01">
 <label>Due date (optional)</label><input type="date" name="due_date">
 <button class="btn primary">Create Invoice</button></form>{% else %}<p class="muted">Enable finance settings first. Fee values remain unset until the academy decides them.</p>{% endif %}
 </section></div>
