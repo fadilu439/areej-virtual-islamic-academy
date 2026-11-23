@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block title %}Child Progress | Areej Academy{% endblock %}
+{% block heading %}Child Learning Progress{% endblock %}
+{% block content %}
+<section class="hero parent-hero"><small>FAMILY LEARNING VIEW</small><h2>{{ child.display_name }}</h2><p>Academic information for your linked child. Private account details are not shown here.</p></section>
+<section class="metrics"><article><small>Attendance</small><strong>{{ attendance_summary.present or 0 }}/{{ attendance_summary.total or 0 }}</strong><p>Lessons marked present</p></article><article><small>Results</small><strong>{{ results|length }}</strong><p>Recorded assessments</p></article><article><small>Approved Reports</small><strong>{{ reports|length }}</strong><p>Teacher progress reports</p></article></section>
+<div class="columns">
+<section class="panel"><small>ATTENDANCE</small><h2>Attendance History</h2>{% if attendance %}<div class="mini-list">{% for a in attendance %}<div><strong>{{ a.class_name }} · {{ a.lesson_date }}</strong><span>{{ a.status|title }}</span></div>{% endfor %}</div>{% else %}<p class="muted">No attendance records are available yet.</p>{% endif %}</section>
+<section class="panel"><small>ASSESSMENTS</small><h2>Results & Feedback</h2>{% if results %}<div class="mini-list">{% for r in results %}<div><strong>{{ r.assessment }} · {{ r.class_name }}</strong><span>{{ r.score }}/{{ r.maximum_score }}{% if r.feedback %} · {{ r.feedback }}{% endif %}</span></div>{% endfor %}</div>{% else %}<p class="muted">No results have been recorded yet.</p>{% endif %}</section>
+</div>
+<section class="panel"><small>TEACHER UPDATES</small><h2>Approved Progress Reports</h2>{% if reports %}<div class="mini-list">{% for r in reports %}<div><strong>{{ r.class_name }} · {{ r.report_date }}</strong><span>{{ r.progress_notes }}{% if r.teacher_comments %} · {{ r.teacher_comments }}{% endif %}{% if r.recommendations %} · {{ r.recommendations }}{% endif %}</span></div>{% endfor %}</div>{% else %}<p class="muted">Approved progress reports will appear here when shared by the academy.</p>{% endif %}</section>
+<a class="btn" href="{{ url_for('parent_dashboard') }}">← Back to Parent Portal</a>
+{% endblock %}
