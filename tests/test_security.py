@@ -298,6 +298,40 @@ def test_admin_can_review_submitted_academic_report(client):
         assert report["review_note"] == "Reviewed and approved."
 
 
+def test_staff_can_plan_lessons_and_share_resources_only_with_owned_classes(client):
+    with app_module.app.app_context():
+        conn=app_module.db()
+        staff_id=conn.execute("INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+            ("planner-teacher",generate_password_hash("teacher password 123"),"staff","Planner Teacher")).lastrowid
+        other_id=conn.execute("INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+            ("other-planner",generate_password_hash("teacher password 123"),"staff","Other Planner")).lastrowid
+        own_class=conn.execute("INSERT INTO classes(teacher_id,name) VALUES(?,?)",(staff_id,"Lesson Class")).lastrowid
+        foreign_class=conn.execute("INSERT INTO classes(teacher_id,name) VALUES(?,?)",(other_id,"Foreign Lesson Class")).lastrowid
+        conn.commit()
+    with client.session_transaction() as session:
+        session.update(user_id=staff_id,username="planner-teacher",role="staff",csrf_token="planner-csrf")
+    plan=client.post("/staff/lesson-plans/create",data={
+        "csrf_token":"planner-csrf","class_id":str(own_class),"lesson_date":"2026-11-24",
+        "topic":"Makharij","objectives":"Recognise articulation points","materials":"Qaida",
+        "planned_activity":"Guided recitation"
+    })
+    assert plan.status_code==302
+    resource=client.post("/staff/materials/create",data={
+        "csrf_token":"planner-csrf","class_id":str(own_class),"title":"Recitation notes",
+        "url":"https://example.com/recitation-notes"
+    })
+    assert resource.status_code==302
+    denied=client.post("/staff/materials/create",data={
+        "csrf_token":"planner-csrf","class_id":str(foreign_class),"title":"Private resource",
+        "url":"https://example.com/private"
+    })
+    assert denied.status_code==403
+    with app_module.app.app_context():
+        conn=app_module.db()
+        assert conn.execute("SELECT COUNT(*) AS n FROM lesson_plans WHERE staff_id=?",(staff_id,)).fetchone()["n"]==1
+        assert conn.execute("SELECT COUNT(*) AS n FROM learning_materials WHERE title='Recitation notes'").fetchone()["n"]==1
+
+
 def test_student_learning_centre_shows_only_enrolled_class_resources(client):
     with app_module.app.app_context():
         conn = app_module.db()
