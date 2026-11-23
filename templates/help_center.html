@@ -17,6 +17,14 @@
     <div class="help-empty"><h3>No matching articles</h3><p>Try another search, or contact your academy administrator through Message Centre.</p></div>
     {% endfor %}
   </div>
+  <h2 class="section-title">Frequently Asked Questions</h2>
+  <div class="help-articles">
+    {% for faq in faqs %}
+    <article class="help-article"><h3>{{ faq.question }}</h3><p>{{ faq.answer }}</p></article>
+    {% else %}
+    <div class="help-empty"><p>No matching FAQs.</p></div>
+    {% endfor %}
+  </div>
 </section>
 <section class="panel">
   <h2>Still need help?</h2>
