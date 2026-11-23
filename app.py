@@ -56,7 +56,23 @@ def csrf_guard():
     if request.method == "POST":
         submitted = request.form.get("csrf_token", "")
         if not submitted or not hmac.compare_digest(session["csrf_token"], submitted):
+            # A login form can become stale when another tab signs in/out or
+            # the browser restores an older page. Reject the POST, rotate the
+            # session, and show a fresh form instead of a confusing 403 page.
+            if request.endpoint == "login":
+                session.clear()
+                flash("Your sign-in page expired. Please enter your details again.", "warning")
+                return redirect(url_for("login"))
             abort(403)
+
+
+@app.after_request
+def prevent_login_form_caching(response):
+    if request.endpoint == "login":
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Expires"] = "0"
+    return response
 
 def valid_upload_signature(upload, extension):
     """Check basic file signatures instead of trusting the browser MIME type."""
