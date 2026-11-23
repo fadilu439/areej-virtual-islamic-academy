@@ -493,7 +493,7 @@ def portal_contacts(conn, role):
     # enrolled in classes assigned to them, but not unrelated learners.
     if role == "staff":
         return conn.execute(
-            """SELECT DISTINCT u.id, u.display_name, u.role
+            """SELECT DISTINCT u.id, u.display_name, u.role, u.profile_picture
                FROM users u
                WHERE u.id != ? AND u.is_active=TRUE AND (
                    u.role IN ('admin', 'staff')
@@ -513,7 +513,7 @@ def portal_contacts(conn, role):
         ).fetchall()
 
     return conn.execute(
-        "SELECT id, display_name, role FROM users WHERE id != ? AND is_active=TRUE ORDER BY role, display_name",
+        "SELECT id, display_name, role, profile_picture FROM users WHERE id != ? AND is_active=TRUE ORDER BY role, display_name",
         (session["user_id"],),
     ).fetchall()
 
@@ -550,7 +550,7 @@ def messages_inbox():
 def message_conversation(contact_id):
     conn = db()
     current_id = session["user_id"]
-    contact = conn.execute("SELECT id, display_name, role, is_active FROM users WHERE id=?", (contact_id,)).fetchone()
+    contact = conn.execute("SELECT id, display_name, role, is_active, profile_picture FROM users WHERE id=?", (contact_id,)).fetchone()
     if not contact or contact_id == current_id or not contact["is_active"]:
         abort(404)
     permitted_ids = {int(person["id"]) for person in portal_contacts(conn, session["role"])}
