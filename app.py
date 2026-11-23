@@ -310,7 +310,7 @@ def context_user():
     if session.get("user_id"):
         conn = db()
         unread_count = conn.execute(
-            "SELECT COUNT(*) AS n FROM messages WHERE recipient_id=? AND is_read=0",
+            "SELECT COUNT(*) AS n FROM messages WHERE recipient_id=? AND is_read=0 AND hidden_for_recipient=FALSE AND deleted_for_everyone=FALSE",
             (session["user_id"],),
         ).fetchone()["n"]
         preferences = user_preferences_for(conn, session["user_id"])
@@ -554,9 +554,14 @@ def messages_inbox():
     for person in portal_contacts(conn, session["role"]):
         contact_id = person["id"]
         latest = conn.execute("""SELECT body, attachment_name, created_at FROM messages
-            WHERE (sender_id=? AND recipient_id=?) OR (sender_id=? AND recipient_id=?)
+            WHERE ((sender_id=? AND recipient_id=? AND hidden_for_sender=FALSE)
+                OR (sender_id=? AND recipient_id=? AND hidden_for_recipient=FALSE))
+              AND deleted_for_everyone=FALSE
             ORDER BY id DESC LIMIT 1""", (user_id, contact_id, contact_id, user_id)).fetchone()
-        unread = conn.execute("SELECT COUNT(*) AS n FROM messages WHERE sender_id=? AND recipient_id=? AND is_read=0", (contact_id, user_id)).fetchone()["n"]
+        unread = conn.execute("""SELECT COUNT(*) AS n FROM messages
+            WHERE sender_id=? AND recipient_id=? AND is_read=0
+              AND hidden_for_recipient=FALSE AND deleted_for_everyone=FALSE""",
+            (contact_id, user_id)).fetchone()["n"]
         contacts.append({"id": contact_id, "display_name": person["display_name"], "role": person["role"],
             "last_message": ((latest["body"] or "").strip() or (latest["attachment_name"] or "Attachment")) if latest else "Start a conversation",
             "last_created_at": latest["created_at"] if latest else "", "unread_count": unread,
@@ -651,6 +656,14 @@ def settings():
 @app.route("/profile/avatar/<int:user_id>")
 @roles("admin", "staff", "student", "parent")
 def profile_avatar(user_id):
+    if user_id != session.get("user_id"):
+        permitted_ids = {int(person["id"]) for person in portal_contacts(db(), session["role"])}
+        has_history = db().execute(
+            "SELECT 1 FROM messages WHERE (sender_id=? AND recipient_id=?) OR (sender_id=? AND recipient_id=?) LIMIT 1",
+            (session["user_id"], user_id, user_id, session["user_id"]),
+        ).fetchone()
+        if user_id not in permitted_ids and not has_history:
+            abort(403)
     row = db().execute("SELECT profile_picture FROM users WHERE id=? AND is_active=TRUE", (user_id,)).fetchone()
     if not row or not row["profile_picture"]:
         abort(404)
