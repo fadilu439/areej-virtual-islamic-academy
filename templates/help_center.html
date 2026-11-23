@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block title %}Help Center | Areej Academy{% endblock %}
+{% block heading %}Help Center{% endblock %}
+{% block content %}
+<section class="panel">
+  <small class="eyebrow">AREEJ SUPPORT</small>
+  <h2>How can we help you?</h2>
+  <p class="muted">Guides and answers for your {{ current_user.role|title }} Portal.</p>
+  <form class="help-search" method="get" action="{{ url_for('help_center') }}">
+    <input type="search" name="q" value="{{ search_query }}" placeholder="Search help articles..." aria-label="Search help articles">
+    <button class="btn primary" type="submit">Search</button>
+  </form>
+  <div class="help-articles">
+    {% for article in articles %}
+    <article class="help-article"><h3>{{ article.title }}</h3><p>{{ article.body }}</p></article>
+    {% else %}
+    <div class="help-empty"><h3>No matching articles</h3><p>Try another search, or contact your academy administrator through Message Centre.</p></div>
+    {% endfor %}
+  </div>
+</section>
+<section class="panel">
+  <h2>Still need help?</h2>
+  <p class="muted">Send a private message to an authorised academy administrator using Message Centre.</p>
+  <a class="btn primary" href="{{ url_for('messages_inbox') }}">Open Message Centre</a>
+</section>
+{% endblock %}
