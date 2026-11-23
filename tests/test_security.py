@@ -123,7 +123,7 @@ def test_admin_cannot_create_account_with_short_password(client):
             "csrf_token": "test-csrf",
             "action": "add_student",
             "student_name": "New Student",
-            "student_age": "8", "gender": "Female", "country": "Nigeria", "state": "Kano",
+            "student_age": "8", "gender": "Female", "country": "Nigeria", "state": "Kano", "programme": "Islamic Studies",
             "student_username": "new-student",
             "student_password": "short7!",
         },
