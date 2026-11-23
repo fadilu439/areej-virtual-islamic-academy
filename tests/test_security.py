@@ -426,6 +426,12 @@ def test_manual_payment_proof_requires_admin_confirmation_before_receipt(client)
         assert payment["status"]=="confirmed"
         assert payment["receipt_number"].startswith("AREEJ-")
         assert invoice["status"]=="partial"
+        payment_id=app_module.db().execute("SELECT id FROM payments WHERE invoice_id=?",(invoice_id,)).fetchone()["id"]
+    with client.session_transaction() as session:
+        session.update(user_id=student_id,username="student-test",role="student",csrf_token="student-receipt")
+    receipt=client.get(f"/finance/receipts/{payment_id}")
+    assert receipt.status_code==200
+    assert b"Payment Receipt" in receipt.data
 
 
 def test_parent_cannot_submit_payment_for_unlinked_student_invoice(client):
