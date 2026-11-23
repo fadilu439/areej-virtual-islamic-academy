@@ -399,3 +399,54 @@ def test_disabling_read_receipts_keeps_sender_from_seeing_read_tick(client):
     with app_module.app.app_context():
         state = app_module.db().execute("SELECT is_read, read_at FROM messages").fetchone()
         assert state["is_read"] == 1 and state["read_at"] is None
+
+
+def test_profile_picture_upload_is_saved_to_the_signed_in_users_own_account(client):
+    from io import BytesIO
+    from werkzeug.datastructures import FileStorage
+
+    token = csrf_token(client)
+    with client.session_transaction() as session:
+        session.update(user_id=2, username="student-test", role="student", csrf_token=token)
+
+    response = client.post(
+        "/settings",
+        data={
+            "csrf_token": token,
+            "display_name": "Test Student",
+            "theme": "light",
+            "profile_picture": (BytesIO(b"\\x89PNG\\r\\n\\x1a\\nprofile-test"), "student.png", "image/png"),
+        },
+        content_type="multipart/form-data",
+    )
+    assert response.status_code == 302
+    with app_module.app.app_context():
+        user = app_module.db().execute(
+            "SELECT profile_picture FROM users WHERE id=?", (2,)
+        ).fetchone()
+        assert user["profile_picture"]
+        assert user["profile_picture"].endswith(".png")
+
+
+def test_profile_picture_route_requires_authenticated_portal_user(client):
+    response = client.get("/profile/avatar/2")
+    assert response.status_code == 302
+    assert "/login" in response.headers["Location"]
+
+
+def test_help_center_is_available_to_student_and_role_specific(client):
+    with client.session_transaction() as session:
+        session.update(user_id=2, username="student-test", role="student", csrf_token="student-csrf")
+    response = client.get("/help")
+    assert response.status_code == 200
+    assert b"Your Student Dashboard" in response.data
+    assert b"Your Parent Dashboard" not in response.data
+
+
+def test_help_center_search_filters_role_specific_articles(client):
+    with client.session_transaction() as session:
+        session.update(user_id=2, username="student-test", role="student", csrf_token="student-csrf")
+    response = client.get("/help?q=examinations")
+    assert response.status_code == 200
+    assert b"Assignments and examinations" in response.data
+    assert b"Joining lessons" not in response.data
