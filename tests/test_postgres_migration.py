@@ -149,6 +149,9 @@ def test_academic_reports_migration_adds_reports_and_submission_review_fields():
         ).fetchone()
         assert reports is not None
         assert conn.execute("SELECT relrowsecurity FROM pg_class WHERE oid='areej_app.academic_reports'::regclass").fetchone()[0] is True
+        lesson_plans = conn.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='areej_app' AND table_name='lesson_plans'").fetchone()
+        assert lesson_plans is not None
+        assert conn.execute("SELECT relrowsecurity FROM pg_class WHERE oid='areej_app.lesson_plans'::regclass").fetchone()[0] is True
         conn.execute("DROP SCHEMA areej_app CASCADE")
         conn.commit()
 
