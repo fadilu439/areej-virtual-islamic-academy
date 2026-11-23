@@ -177,9 +177,14 @@ def init_db():
                 raise RuntimeError("Apply migration 009_areej_academic_reports.sql before deploying this version.")
             finance_tables = conn.execute("""SELECT
                 to_regclass('areej_app.finance_settings') AS settings,
+                to_regclass('areej_app.fee_plans') AS fee_plans,
                 to_regclass('areej_app.invoices') AS invoices,
                 to_regclass('areej_app.payments') AS payments""").fetchone()
-            if not finance_tables or not finance_tables["settings"] or not finance_tables["invoices"] or not finance_tables["payments"]:
+            if not finance_tables or not finance_tables["settings"] or not finance_tables["fee_plans"] or not finance_tables["invoices"] or not finance_tables["payments"]:
+                raise RuntimeError("Apply migration 010_areej_finance.sql before deploying this version.")
+            fee_plan_column = conn.execute("""SELECT 1 FROM information_schema.columns
+                WHERE table_schema='areej_app' AND table_name='invoices' AND column_name='fee_plan_id'""").fetchone()
+            if not fee_plan_column:
                 raise RuntimeError("Apply migration 010_areej_finance.sql before deploying this version.")
         finally:
             conn.close()
@@ -280,9 +285,15 @@ def init_db():
       id INTEGER PRIMARY KEY CHECK (id=1), currency TEXT NOT NULL DEFAULT 'NGN',
       fees_enabled INTEGER NOT NULL DEFAULT 0, updated_by INTEGER, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
+    CREATE TABLE IF NOT EXISTS fee_plans (
+      id INTEGER PRIMARY KEY, title TEXT NOT NULL, programme TEXT NOT NULL DEFAULT '',
+      amount REAL NOT NULL CHECK(amount>0), currency TEXT NOT NULL,
+      billing_cycle TEXT NOT NULL DEFAULT 'one_time', is_active INTEGER NOT NULL DEFAULT 1,
+      created_by INTEGER NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
     CREATE TABLE IF NOT EXISTS invoices (
-      id INTEGER PRIMARY KEY, student_id INTEGER NOT NULL, title TEXT NOT NULL,
-      description TEXT DEFAULT '', amount REAL NOT NULL CHECK(amount>0), currency TEXT NOT NULL,
+      id INTEGER PRIMARY KEY, student_id INTEGER NOT NULL, fee_plan_id INTEGER,
+      title TEXT NOT NULL, description TEXT DEFAULT '', amount REAL NOT NULL CHECK(amount>0), currency TEXT NOT NULL,
       due_date TEXT DEFAULT '', status TEXT NOT NULL DEFAULT 'unpaid',
       created_by INTEGER NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
@@ -294,6 +305,9 @@ def init_db():
       receipt_number TEXT UNIQUE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     """)
+    invoice_columns = {row[1] for row in conn.execute("PRAGMA table_info(invoices)")}
+    if "fee_plan_id" not in invoice_columns:
+        conn.execute("ALTER TABLE invoices ADD COLUMN fee_plan_id INTEGER")
     user_columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
     if "is_active" not in user_columns:
         conn.execute("ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
