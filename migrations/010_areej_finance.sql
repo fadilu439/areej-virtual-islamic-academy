@@ -36,5 +36,8 @@ CREATE TABLE IF NOT EXISTS areej_app.payments (
 CREATE INDEX IF NOT EXISTS invoices_student_created_idx ON areej_app.invoices(student_id,created_at DESC);
 CREATE INDEX IF NOT EXISTS payments_invoice_status_idx ON areej_app.payments(invoice_id,status);
 CREATE INDEX IF NOT EXISTS payments_student_created_idx ON areej_app.payments(student_id,created_at DESC);
+ALTER TABLE areej_app.finance_settings ENABLE ROW LEVEL SECURITY;
+ALTER TABLE areej_app.invoices ENABLE ROW LEVEL SECURITY;
+ALTER TABLE areej_app.payments ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE areej_app.finance_settings, areej_app.invoices, areej_app.payments FROM anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE areej_app.finance_settings, areej_app.invoices, areej_app.payments TO service_role;
