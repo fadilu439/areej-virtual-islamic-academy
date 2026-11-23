@@ -155,6 +155,25 @@ def register_finance_routes(app, db, roles, save_upload, read_upload, upload_fol
         flash("Payment "+decision+". "+("Official receipt generated." if receipt else "No receipt was issued."), "success")
         return redirect(url_for("finance_portal"))
 
+    @app.route("/finance/receipts/<int:payment_id>")
+    @roles("admin","student","parent")
+    def finance_receipt(payment_id):
+        conn=db()
+        receipt=conn.execute("""SELECT p.*,i.title AS invoice_title,i.currency,i.amount AS invoice_amount,
+            u.display_name AS student_name FROM payments p
+            JOIN invoices i ON i.id=p.invoice_id JOIN users u ON u.id=p.student_id
+            WHERE p.id=? AND p.status='confirmed' AND p.receipt_number IS NOT NULL""",
+            (payment_id,)).fetchone()
+        if not receipt:
+            abort(404)
+        if session["role"]=="student" and receipt["student_id"]!=session["user_id"]:
+            abort(404)
+        if session["role"]=="parent" and not conn.execute(
+            "SELECT 1 FROM parent_links WHERE parent_id=? AND student_id=?",
+            (session["user_id"],receipt["student_id"])).fetchone():
+            abort(404)
+        return render_template("receipt.html",receipt=receipt)
+
     @app.route("/admin/finance/payments/<int:payment_id>/proof")
     @roles("admin")
     def finance_payment_proof(payment_id):
