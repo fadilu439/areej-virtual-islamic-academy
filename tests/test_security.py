@@ -20,7 +20,7 @@ def clean_database():
     with app_module.app.app_context():
         conn = app_module.db()
         for table in (
-            "message_history", "assignment_submissions", "attendance", "results", "assignments",
+            "payments", "invoices", "fee_plans", "finance_settings", "message_history", "academic_reports", "assignment_submissions", "attendance", "results", "assignments",
             "learning_materials", "announcements", "parent_links", "user_preferences",
             "enrollments_academic", "classes", "messages", "enrollments",
             "courses", "login_attempts", "users",
@@ -123,6 +123,7 @@ def test_admin_cannot_create_account_with_short_password(client):
             "csrf_token": "test-csrf",
             "action": "add_student",
             "student_name": "New Student",
+            "student_age": "8", "gender": "Female", "country": "Nigeria", "state": "Kano", "programme": "Islamic Studies",
             "student_username": "new-student",
             "student_password": "short7!",
         },
@@ -145,6 +146,7 @@ def test_admin_can_create_account_with_8_character_password(client):
             "csrf_token": "test-csrf",
             "action": "add_student",
             "student_name": "New Student",
+            "student_age": "8", "gender": "Female", "country": "Nigeria", "state": "Kano", "programme": "Islamic Studies",
             "student_username": "new-student",
             "student_password": "pass1234",
         },
@@ -229,6 +231,320 @@ def test_staff_sees_only_students_enrolled_in_their_classes(client):
     assert b"Private Student" not in response.data
     from html import unescape
     assert "Teacher's Class" in unescape(response.get_data(as_text=True))
+
+
+def test_staff_can_submit_report_only_for_owned_class(client):
+    with app_module.app.app_context():
+        conn = app_module.db()
+        staff_id = conn.execute(
+            "INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+            ("report-teacher", generate_password_hash("teacher password 123"), "staff", "Report Teacher"),
+        ).lastrowid
+        other_staff_id = conn.execute(
+            "INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+            ("other-teacher", generate_password_hash("teacher password 123"), "staff", "Other Teacher"),
+        ).lastrowid
+        owned_class = conn.execute("INSERT INTO classes(teacher_id,name) VALUES(?,?)", (staff_id, "Owned Class")).lastrowid
+        foreign_class = conn.execute("INSERT INTO classes(teacher_id,name) VALUES(?,?)", (other_staff_id, "Other Class")).lastrowid
+        conn.commit()
+    with client.session_transaction() as session:
+        session.update(user_id=staff_id, username="report-teacher", role="staff", csrf_token="report-csrf")
+    good = client.post("/staff/reports/create", data={
+        "csrf_token":"report-csrf","report_type":"daily","class_id":str(owned_class),
+        "report_date":"2026-11-23","topic":"Tajweed lesson","duration_minutes":"40",
+        "attendance_count":"5","progress_notes":"Students practised articulation.",
+        "submit_action":"submit",
+    })
+    assert good.status_code == 302
+    with app_module.app.app_context():
+        assert app_module.db().execute("SELECT COUNT(*) AS n FROM academic_reports WHERE staff_id=?", (staff_id,)).fetchone()["n"] == 1
+    denied = client.post("/staff/reports/create", data={
+        "csrf_token":"report-csrf","report_type":"daily","class_id":str(foreign_class),
+        "report_date":"2026-11-23","topic":"Unauthorized","duration_minutes":"40",
+        "attendance_count":"0","submit_action":"submit",
+    })
+    assert denied.status_code == 403
+
+
+def test_student_cannot_open_staff_or_admin_report_workspaces(client):
+    with client.session_transaction() as session:
+        session.update(user_id=2, username="student-test", role="student", csrf_token="student-csrf")
+    assert client.get("/staff/reports").status_code == 403
+    assert client.get("/admin/reports").status_code == 403
+
+
+def test_admin_can_review_submitted_academic_report(client):
+    with app_module.app.app_context():
+        conn = app_module.db()
+        staff_id = conn.execute(
+            "INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+            ("review-teacher", generate_password_hash("teacher password 123"), "staff", "Review Teacher"),
+        ).lastrowid
+        class_id = conn.execute("INSERT INTO classes(teacher_id,name) VALUES(?,?)", (staff_id, "Review Class")).lastrowid
+        report_id = conn.execute("""INSERT INTO academic_reports
+            (report_type,class_id,staff_id,report_date,topic,status)
+            VALUES('daily',?,?,?,'Lesson','submitted')""", (class_id,staff_id,"2026-11-23")).lastrowid
+        conn.commit()
+    with client.session_transaction() as session:
+        session.update(user_id=1, username="admin-test", role="admin", csrf_token="admin-review-csrf")
+    response = client.post(f"/admin/reports/{report_id}/review", data={
+        "csrf_token":"admin-review-csrf","decision":"approved","review_note":"Reviewed and approved."
+    })
+    assert response.status_code == 302
+    with app_module.app.app_context():
+        report = app_module.db().execute("SELECT status,reviewer_id,review_note FROM academic_reports WHERE id=?", (report_id,)).fetchone()
+        assert report["status"] == "approved"
+        assert report["reviewer_id"] == 1
+        assert report["review_note"] == "Reviewed and approved."
+
+
+def test_staff_can_plan_lessons_and_share_resources_only_with_owned_classes(client):
+    with app_module.app.app_context():
+        conn=app_module.db()
+        staff_id=conn.execute("INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+            ("planner-teacher",generate_password_hash("teacher password 123"),"staff","Planner Teacher")).lastrowid
+        other_id=conn.execute("INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+            ("other-planner",generate_password_hash("teacher password 123"),"staff","Other Planner")).lastrowid
+        own_class=conn.execute("INSERT INTO classes(teacher_id,name) VALUES(?,?)",(staff_id,"Lesson Class")).lastrowid
+        foreign_class=conn.execute("INSERT INTO classes(teacher_id,name) VALUES(?,?)",(other_id,"Foreign Lesson Class")).lastrowid
+        conn.commit()
+    with client.session_transaction() as session:
+        session.update(user_id=staff_id,username="planner-teacher",role="staff",csrf_token="planner-csrf")
+    plan=client.post("/staff/lesson-plans/create",data={
+        "csrf_token":"planner-csrf","class_id":str(own_class),"lesson_date":"2026-11-24",
+        "topic":"Makharij","objectives":"Recognise articulation points","materials":"Qaida",
+        "planned_activity":"Guided recitation"
+    })
+    assert plan.status_code==302
+    resource=client.post("/staff/materials/create",data={
+        "csrf_token":"planner-csrf","class_id":str(own_class),"title":"Recitation notes",
+        "url":"https://example.com/recitation-notes"
+    })
+    assert resource.status_code==302
+    denied=client.post("/staff/materials/create",data={
+        "csrf_token":"planner-csrf","class_id":str(foreign_class),"title":"Private resource",
+        "url":"https://example.com/private"
+    })
+    assert denied.status_code==403
+    with app_module.app.app_context():
+        conn=app_module.db()
+        assert conn.execute("SELECT COUNT(*) AS n FROM lesson_plans WHERE staff_id=?",(staff_id,)).fetchone()["n"]==1
+        assert conn.execute("SELECT COUNT(*) AS n FROM learning_materials WHERE title='Recitation notes'").fetchone()["n"]==1
+
+
+def test_student_learning_centre_shows_only_enrolled_class_resources(client):
+    with app_module.app.app_context():
+        conn = app_module.db()
+        student_id = conn.execute("SELECT id FROM users WHERE username=?", ("student-test",)).fetchone()["id"]
+        course_id = conn.execute("INSERT INTO courses(name,description) VALUES(?,?)", ("Arabic", "Arabic course")).lastrowid
+        own_class = conn.execute("INSERT INTO classes(course_id,name) VALUES(?,?)", (course_id,"Enrolled Arabic")).lastrowid
+        private_class = conn.execute("INSERT INTO classes(name) VALUES(?)", ("Not Enrolled",)).lastrowid
+        conn.execute("INSERT INTO enrollments_academic(student_id,class_id) VALUES(?,?)", (student_id,own_class))
+        conn.execute("INSERT INTO learning_materials(class_id,title,url) VALUES(?,?,?)", (own_class,"Arabic Notes","https://example.com/notes"))
+        conn.execute("INSERT INTO learning_materials(class_id,title,url) VALUES(?,?,?)", (private_class,"Private Notes","https://example.com/private"))
+        conn.commit()
+    with client.session_transaction() as session:
+        session.update(user_id=2,username="student-test",role="student",csrf_token="student-learning")
+    response=client.get("/student/learning")
+    assert response.status_code==200
+    assert b"Enrolled Arabic" in response.data
+    assert b"Arabic Notes" in response.data
+    assert b"Not Enrolled" not in response.data
+    assert b"Private Notes" not in response.data
+
+
+def test_parent_can_only_view_linked_child_progress(client):
+    with app_module.app.app_context():
+        conn=app_module.db()
+        parent_id=conn.execute("INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+            ("parent-test",generate_password_hash("parent password 123"),"parent","Test Parent")).lastrowid
+        child_id=conn.execute("INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+            ("child-test",generate_password_hash("child password 123"),"student","Linked Child")).lastrowid
+        other_id=conn.execute("INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+            ("other-child",generate_password_hash("child password 123"),"student","Other Child")).lastrowid
+        conn.execute("INSERT INTO parent_links(parent_id,student_id) VALUES(?,?)",(parent_id,child_id))
+        conn.commit()
+    with client.session_transaction() as session:
+        session.update(user_id=parent_id,username="parent-test",role="parent",csrf_token="parent-progress")
+    allowed=client.get(f"/parent/children/{child_id}/progress")
+    denied=client.get(f"/parent/children/{other_id}/progress")
+    assert allowed.status_code==200
+    assert b"Linked Child" in allowed.data
+    assert denied.status_code==404
+
+
+def test_finance_starts_disabled_and_admin_controls_private_invoices(client):
+    with app_module.app.app_context():
+        conn=app_module.db()
+        student_id=conn.execute("SELECT id FROM users WHERE username=?",("student-test",)).fetchone()["id"]
+        assert conn.execute("SELECT COUNT(*) AS n FROM invoices").fetchone()["n"]==0
+    with client.session_transaction() as session:
+        session.update(user_id=1,username="admin-test",role="admin",csrf_token="finance-admin")
+    disabled=client.post("/admin/finance/invoices/create",data={
+        "csrf_token":"finance-admin","student_id":str(student_id),"title":"Course invoice","amount":"100"
+    })
+    assert disabled.status_code==302
+    with app_module.app.app_context():
+        assert app_module.db().execute("SELECT COUNT(*) AS n FROM invoices").fetchone()["n"]==0
+    client.post("/admin/finance/settings",data={
+        "csrf_token":"finance-admin","currency":"NGN","fees_enabled":"1"
+    })
+    enabled=client.post("/admin/finance/invoices/create",data={
+        "csrf_token":"finance-admin","student_id":str(student_id),"title":"Private course invoice",
+        "description":"Issued privately","amount":"25000","due_date":"2026-12-01"
+    })
+    assert enabled.status_code==302
+    with app_module.app.app_context():
+        invoice=app_module.db().execute("SELECT amount,currency,status FROM invoices").fetchone()
+        assert invoice["amount"]==25000
+        assert invoice["currency"]=="NGN"
+        assert invoice["status"]=="unpaid"
+
+
+def test_admin_can_create_private_fee_plan_and_issue_invoice_from_it(client):
+    with app_module.app.app_context():
+        conn=app_module.db()
+        student_id=conn.execute("SELECT id FROM users WHERE username=?",("student-test",)).fetchone()["id"]
+    with client.session_transaction() as session:
+        session.update(user_id=1,username="admin-test",role="admin",csrf_token="fee-plan-csrf")
+    client.post("/admin/finance/settings",data={
+        "csrf_token":"fee-plan-csrf","currency":"NGN","fees_enabled":"1"
+    })
+    created=client.post("/admin/finance/plans/create",data={
+        "csrf_token":"fee-plan-csrf","title":"Arabic Term Plan","programme":"Arabic Grade 1",
+        "amount":"35000","billing_cycle":"termly"
+    })
+    assert created.status_code==302
+    with app_module.app.app_context():
+        plan=app_module.db().execute("SELECT id,amount,currency FROM fee_plans WHERE title='Arabic Term Plan'").fetchone()
+        assert plan is not None
+        assert plan["amount"]==35000
+    invoice=client.post("/admin/finance/invoices/create",data={
+        "csrf_token":"fee-plan-csrf","student_id":str(student_id),"fee_plan_id":str(plan["id"]),
+        "title":"","description":"","due_date":"2026-12-15"
+    })
+    assert invoice.status_code==302
+    with app_module.app.app_context():
+        saved=app_module.db().execute("SELECT fee_plan_id,title,amount,currency FROM invoices").fetchone()
+        assert saved["fee_plan_id"]==plan["id"]
+        assert saved["title"]=="Arabic Term Plan"
+        assert saved["amount"]==35000
+        assert saved["currency"]=="NGN"
+
+
+def test_student_finance_view_is_limited_to_own_invoices_and_parent_to_linked_children(client):
+    with app_module.app.app_context():
+        conn=app_module.db()
+        student_id=conn.execute("SELECT id FROM users WHERE username=?",("student-test",)).fetchone()["id"]
+        other_id=conn.execute("INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+            ("finance-other",generate_password_hash("other password 123"),"student","Other Finance Student")).lastrowid
+        parent_id=conn.execute("INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+            ("finance-parent",generate_password_hash("parent password 123"),"parent","Finance Parent")).lastrowid
+        conn.execute("INSERT INTO parent_links(parent_id,student_id) VALUES(?,?)",(parent_id,student_id))
+        conn.execute("INSERT INTO invoices(student_id,title,amount,currency,created_by) VALUES(?,?,?,?,?)",
+            (student_id,"Linked Invoice",1000,"NGN",1))
+        conn.execute("INSERT INTO invoices(student_id,title,amount,currency,created_by) VALUES(?,?,?,?,?)",
+            (other_id,"Private Invoice",2000,"NGN",1))
+        conn.commit()
+    with client.session_transaction() as session:
+        session.update(user_id=student_id,username="student-test",role="student",csrf_token="finance-student")
+    student_page=client.get("/finance")
+    assert b"Linked Invoice" in student_page.data
+    assert b"Private Invoice" not in student_page.data
+    with client.session_transaction() as session:
+        session.update(user_id=parent_id,username="finance-parent",role="parent",csrf_token="finance-parent")
+    parent_page=client.get("/finance")
+    assert b"Linked Invoice" in parent_page.data
+    assert b"Private Invoice" not in parent_page.data
+
+
+def test_manual_payment_proof_requires_admin_confirmation_before_receipt(client):
+    from io import BytesIO
+    with app_module.app.app_context():
+        conn=app_module.db()
+        student_id=conn.execute("SELECT id FROM users WHERE username=?",("student-test",)).fetchone()["id"]
+        conn.execute("INSERT INTO finance_settings(id,currency,fees_enabled) VALUES(1,'NGN',1)")
+        invoice_id=conn.execute("INSERT INTO invoices(student_id,title,amount,currency,created_by) VALUES(?,?,?,?,?)",
+            (student_id,"Installment invoice",5000,"NGN",1)).lastrowid
+        conn.commit()
+    with client.session_transaction() as session:
+        session.update(user_id=student_id,username="student-test",role="student",csrf_token="student-payment")
+    proof=b"\x89PNG\r\n\x1a\n"+"valid test image".encode()
+    submitted=client.post(f"/finance/invoices/{invoice_id}/pay",data={
+        "csrf_token":"student-payment","amount":"2000","reference":"BANK-REF-001",
+        "payment_proof":(BytesIO(proof),"proof.png")
+    },content_type="multipart/form-data")
+    assert submitted.status_code==302
+    with app_module.app.app_context():
+        payment=app_module.db().execute("SELECT id,status,receipt_number FROM payments WHERE invoice_id=?",(invoice_id,)).fetchone()
+        assert payment["status"]=="pending"
+        assert payment["receipt_number"] is None
+    with client.session_transaction() as session:
+        session.update(user_id=1,username="admin-test",role="admin",csrf_token="admin-payment")
+    reviewed=client.post(f"/admin/finance/payments/{payment['id']}/review",data={
+        "csrf_token":"admin-payment","decision":"confirmed"
+    })
+    assert reviewed.status_code==302
+    with app_module.app.app_context():
+        payment=app_module.db().execute("SELECT status,receipt_number FROM payments WHERE id=?",(payment["id"],)).fetchone()
+        invoice=app_module.db().execute("SELECT status FROM invoices WHERE id=?",(invoice_id,)).fetchone()
+        assert payment["status"]=="confirmed"
+        assert payment["receipt_number"].startswith("AREEJ-")
+        assert invoice["status"]=="partial"
+        payment_id=app_module.db().execute("SELECT id FROM payments WHERE invoice_id=?",(invoice_id,)).fetchone()["id"]
+    with client.session_transaction() as session:
+        session.update(user_id=student_id,username="student-test",role="student",csrf_token="student-receipt")
+    receipt=client.get(f"/finance/receipts/{payment_id}")
+    assert receipt.status_code==200
+    assert b"Payment Receipt" in receipt.data
+
+
+def test_parent_cannot_submit_payment_for_unlinked_student_invoice(client):
+    with app_module.app.app_context():
+        conn=app_module.db()
+        other_id=conn.execute("INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+            ("unlinked-invoice",generate_password_hash("other password 123"),"student","Unlinked Student")).lastrowid
+        invoice_id=conn.execute("INSERT INTO invoices(student_id,title,amount,currency,created_by) VALUES(?,?,?,?,?)",
+            (other_id,"Unlinked invoice",1000,"NGN",1)).lastrowid
+        parent_id=conn.execute("INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+            ("unlinked-parent",generate_password_hash("parent password 123"),"parent","Unlinked Parent")).lastrowid
+        conn.commit()
+    with client.session_transaction() as session:
+        session.update(user_id=parent_id,username="unlinked-parent",role="parent",csrf_token="parent-pay")
+    response=client.post(f"/finance/invoices/{invoice_id}/pay",data={"csrf_token":"parent-pay","amount":"100"})
+    assert response.status_code==404
+
+
+def test_staff_can_grade_only_submissions_from_owned_classes(client):
+    with app_module.app.app_context():
+        conn=app_module.db()
+        staff_id=conn.execute("INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+            ("marker-teacher",generate_password_hash("teacher password 123"),"staff","Marker Teacher")).lastrowid
+        other_staff=conn.execute("INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+            ("other-marker",generate_password_hash("teacher password 123"),"staff","Other Marker")).lastrowid
+        student_id=conn.execute("SELECT id FROM users WHERE username=?",("student-test",)).fetchone()["id"]
+        own_class=conn.execute("INSERT INTO classes(teacher_id,name) VALUES(?,?)",(staff_id,"Marking Class")).lastrowid
+        foreign_class=conn.execute("INSERT INTO classes(teacher_id,name) VALUES(?,?)",(other_staff,"Foreign Class")).lastrowid
+        own_assignment=conn.execute("INSERT INTO assignments(class_id,title) VALUES(?,?)",(own_class,"Own Assignment")).lastrowid
+        foreign_assignment=conn.execute("INSERT INTO assignments(class_id,title) VALUES(?,?)",(foreign_class,"Foreign Assignment")).lastrowid
+        own_submission=conn.execute("INSERT INTO assignment_submissions(assignment_id,student_id,content) VALUES(?,?,?)",(own_assignment,student_id,"My answer")).lastrowid
+        foreign_submission=conn.execute("INSERT INTO assignment_submissions(assignment_id,student_id,content) VALUES(?,?,?)",(foreign_assignment,student_id,"Private answer")).lastrowid
+        conn.commit()
+    with client.session_transaction() as session:
+        session.update(user_id=staff_id,username="marker-teacher",role="staff",csrf_token="marking-csrf")
+    saved=client.post(f"/staff/submissions/{own_submission}/grade",data={
+        "csrf_token":"marking-csrf","score":"8","maximum_score":"10","feedback":"Good work."
+    })
+    assert saved.status_code==302
+    denied=client.post(f"/staff/submissions/{foreign_submission}/grade",data={
+        "csrf_token":"marking-csrf","score":"8","maximum_score":"10","feedback":"Not yours."
+    })
+    assert denied.status_code==403
+    with app_module.app.app_context():
+        marked=app_module.db().execute("SELECT score,feedback,status FROM assignment_submissions WHERE id=?",(own_submission,)).fetchone()
+        assert marked["score"]==8
+        assert marked["feedback"]=="Good work."
+        assert marked["status"]=="graded"
 
 
 def test_health_endpoint_checks_database(client):
@@ -607,3 +923,70 @@ def test_user_can_forward_visible_message_only_to_authorized_contact(client):
         assert forwarded["sender_id"] == 1
         assert forwarded["body"] == "Please share this lesson note"
         assert forwarded["forwarded_from_id"] == source_id
+
+
+def test_student_registration_generates_secure_account_and_saves_private_details(client):
+    with client.session_transaction() as session:
+        session.update(user_id=1, username="admin-test", role="admin", csrf_token="test-csrf")
+    response = client.post("/admin", data={
+        "csrf_token": "test-csrf", "action": "add_student",
+        "student_name": "Generated Learner", "student_age": "9",
+        "date_of_birth": "2017-06-01", "gender": "Female",
+        "country": "Nigeria", "state": "Kano", "student_phone": "08000000000",
+        "student_email": "learner@example.test", "guardian_name": "Parent Name",
+        "programme": "Arabic Language",
+    })
+    assert response.status_code == 302
+    with app_module.app.app_context():
+        user = app_module.db().execute("SELECT * FROM users WHERE display_name=?", ("Generated Learner",)).fetchone()
+        assert user is not None
+        assert user["role"] == "student"
+        assert user["age"] == 9
+        assert user["date_of_birth"] == "2017-06-01"
+        assert user["gender"] == "Female"
+        assert user["country"] == "Nigeria" and user["state"] == "Kano"
+        assert user["guardian_name"] == "Parent Name"
+        assert user["programme"] == "Arabic Language"
+        assert user["username"]
+        assert user["password_hash"] != ""
+        from werkzeug.security import check_password_hash
+        assert not check_password_hash(user["password_hash"], user["username"])
+
+
+def test_private_profile_hides_profile_from_other_portal_users(client):
+    with app_module.app.app_context():
+        conn = app_module.db()
+        conn.execute("UPDATE users SET profile_visibility='private', bio='Private biography', phone='08012345678' WHERE id=2")
+        conn.commit()
+    with client.session_transaction() as session:
+        session.update(user_id=1, username="admin-test", role="admin", csrf_token="test-csrf")
+    assert client.get("/profile/2").status_code == 403
+
+
+def test_contact_profile_shows_only_opted_in_public_fields(client):
+    with app_module.app.app_context():
+        conn = app_module.db()
+        conn.execute("UPDATE users SET bio='Quran learner', country='Nigeria', state='Kano', show_location=1, phone='08012345678', email='private@example.test', date_of_birth='2017-01-01' WHERE id=2")
+        conn.commit()
+    with client.session_transaction() as session:
+        session.update(user_id=1, username="admin-test", role="admin", csrf_token="test-csrf")
+    response = client.get("/profile/2")
+    assert response.status_code == 200
+    assert b"Quran learner" in response.data
+    assert b"Nigeria" in response.data
+    assert b"08012345678" not in response.data
+    assert b"private@example.test" not in response.data
+    assert b"2017-01-01" not in response.data
+
+
+def test_message_search_filters_contacts_by_name_or_message_body(client):
+    with app_module.app.app_context():
+        conn = app_module.db()
+        conn.execute("INSERT INTO messages(sender_id,recipient_id,body) VALUES(?,?,?)", (2,1,"Tajweed lesson reminder"))
+        conn.commit()
+    with client.session_transaction() as session:
+        session.update(user_id=1, username="admin-test", role="admin", csrf_token="test-csrf")
+    response = client.get("/messages?q=Tajweed")
+    assert response.status_code == 200
+    assert b"Test Student" in response.data
+    assert b"Search" in response.data

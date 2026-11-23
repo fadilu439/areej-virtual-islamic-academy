@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}Learning Centre | Areej Academy{% endblock %}
+{% block heading %}Student Learning Centre{% endblock %}
+{% block content %}
+<section class="hero student-hero"><small>YOUR LEARNING CENTRE</small><h2>Your learning, progress and feedback in one place.</h2><p>Only classes and learning materials linked to your enrolment are shown here.</p></section>
+<section class="metrics">
+<article><small>Enrolled Classes</small><strong>{{ classes|length }}</strong><p>Your active class spaces</p></article>
+<article><small>Attendance Records</small><strong>{{ attendance|length }}</strong><p>Recorded lesson attendance</p></article>
+<article><small>Assessments</small><strong>{{ results|length }}</strong><p>Published results</p></article>
+<article><small>Learning Materials</small><strong>{{ materials|length }}</strong><p>Resources shared with your classes</p></article>
+</section>
+<div class="columns">
+<section class="panel"><small>MY TIMETABLE</small><h2>Enrolled Classes</h2>
+{% if classes %}<div class="schedule-list">{% for c in classes %}<div><strong>{{ c.name }}</strong>{% if c.meeting_url %}<a href="{{ c.meeting_url }}" target="_blank" rel="noopener">Join live class</a>{% endif %}<span>{{ c.schedule or 'Schedule to be confirmed' }} · {{ c.channel }}</span></div>{% endfor %}</div>{% else %}<p class="muted">Your classes will appear after the academy enrols you.</p>{% endif %}
+</section>
+<section class="panel"><small>MY COURSES</small><h2>Courses</h2>
+{% if courses %}<div class="mini-list">{% for c in courses %}<div><strong>{{ c.name }}</strong><span>{{ c.description or 'Course information will be shared by your teacher.' }}</span></div>{% endfor %}</div>{% else %}<p class="muted">No course enrolment has been added yet.</p>{% endif %}
+</section></div>
+<section class="panel"><small>CLASSWORK</small><h2>Assignments & Submission Feedback</h2>
+{% if assignments %}<div class="mini-list">{% for a in assignments %}<div><strong>{{ a.title }} · {{ a.class_name }}</strong><span>Due {{ a.due_date or 'No due date' }} · {{ a.submission_status|default('Not submitted', true)|title }}{% if a.score is not none %} · Mark: {{ a.score }}{% endif %}</span>{% if a.feedback %}<p>Teacher feedback: {{ a.feedback }}</p>{% endif %}
+<details class="portal-details"><summary>Submit / update work</summary><form class="course-form" method="post" action="{{ url_for('submit_assignment') }}" enctype="multipart/form-data"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="hidden" name="assignment_id" value="{{ a.id }}"><label>Your response</label><textarea name="content" rows="3"></textarea><label>Attach file</label><input type="file" name="submission_file"><button class="btn primary">Submit work</button></form></details></div>{% endfor %}</div>{% else %}<p class="muted">No assignments have been assigned to your enrolled classes.</p>{% endif %}
+</section>
+<div class="columns">
+<section class="panel"><small>ASSESSMENTS</small><h2>Results & Feedback</h2>
+{% if results %}<div class="mini-list">{% for r in results %}<div><strong>{{ r.assessment }} · {{ r.class_name }}</strong><span>{{ r.score }}/{{ r.maximum_score }} · {{ r.created_at }}{% if r.feedback %} · {{ r.feedback }}{% endif %}</span></div>{% endfor %}</div>{% else %}<p class="muted">Results will appear after your teacher records an assessment.</p>{% endif %}
+</section>
+<section class="panel"><small>TEACHER REPORTS</small><h2>Approved Progress Reports</h2>
+{% if reports %}<div class="mini-list">{% for r in reports %}<div><strong>{{ r.class_name }} · {{ r.report_date }}</strong><span>{{ r.progress_notes }}{% if r.teacher_comments %} · {{ r.teacher_comments }}{% endif %}{% if r.recommendations %} · Next: {{ r.recommendations }}{% endif %}</span></div>{% endfor %}</div>{% else %}<p class="muted">Approved individual progress reports will appear here.</p>{% endif %}
+</section></div>
+<div class="columns">
+<section class="panel"><small>ATTENDANCE</small><h2>Attendance History</h2>
+{% if attendance %}<div class="mini-list">{% for a in attendance %}<div><strong>{{ a.class_name }} · {{ a.lesson_date }}</strong><span>{{ a.status|title }}</span></div>{% endfor %}</div>{% else %}<p class="muted">No attendance records have been added yet.</p>{% endif %}
+</section>
+<section class="panel"><small>CLASS RESOURCES</small><h2>Learning Materials</h2>
+{% if materials %}<div class="mini-list">{% for m in materials %}<div><strong>{{ m.title }}</strong><span>{{ m.class_name }}{% if m.url %} · <a href="{{ m.url }}" target="_blank" rel="noopener">Open resource</a>{% elif m.file_name %} · {{ m.file_name }}{% endif %}</span></div>{% endfor %}</div>{% else %}<p class="muted">Your teachers' learning materials will appear here.</p>{% endif %}
+</section></div>
+{% endblock %}

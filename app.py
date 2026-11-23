@@ -161,6 +161,31 @@ def init_db():
             history_table = conn.execute("SELECT to_regclass('areej_app.message_history') AS table_name").fetchone()
             if message_actions["n"] != 5 or not history_table or history_table["table_name"] is None:
                 raise RuntimeError("Apply migration 007_areej_message_actions.sql before deploying this version.")
+            profile_columns = conn.execute("""SELECT COUNT(*) AS n FROM information_schema.columns
+                WHERE table_schema='areej_app' AND table_name='users'
+                AND column_name IN ('age','date_of_birth','gender','country','state','phone','email','guardian_name','programme','bio','profile_visibility','show_location')""").fetchone()
+            if profile_columns["n"] != 12:
+                raise RuntimeError("Apply migration 008_areej_student_profiles.sql before deploying this version.")
+            academic_tables = conn.execute("SELECT to_regclass('areej_app.academic_reports') AS reports, to_regclass('areej_app.assignment_submissions') AS submissions").fetchone()
+            submission_columns = conn.execute("""SELECT COUNT(*) AS n FROM information_schema.columns
+                WHERE table_schema='areej_app' AND table_name='assignment_submissions'
+                AND column_name IN ('score','feedback','status','reviewed_by','reviewed_at')""").fetchone()
+            if not academic_tables or not academic_tables["reports"] or not academic_tables["submissions"] or submission_columns["n"] != 5:
+                raise RuntimeError("Apply migration 009_areej_academic_reports.sql before deploying this version.")
+            lesson_plans = conn.execute("SELECT to_regclass('areej_app.lesson_plans') AS table_name").fetchone()
+            if not lesson_plans or not lesson_plans["table_name"]:
+                raise RuntimeError("Apply migration 009_areej_academic_reports.sql before deploying this version.")
+            finance_tables = conn.execute("""SELECT
+                to_regclass('areej_app.finance_settings') AS settings,
+                to_regclass('areej_app.fee_plans') AS fee_plans,
+                to_regclass('areej_app.invoices') AS invoices,
+                to_regclass('areej_app.payments') AS payments""").fetchone()
+            if not finance_tables or not finance_tables["settings"] or not finance_tables["fee_plans"] or not finance_tables["invoices"] or not finance_tables["payments"]:
+                raise RuntimeError("Apply migration 010_areej_finance.sql before deploying this version.")
+            fee_plan_column = conn.execute("""SELECT 1 FROM information_schema.columns
+                WHERE table_schema='areej_app' AND table_name='invoices' AND column_name='fee_plan_id'""").fetchone()
+            if not fee_plan_column:
+                raise RuntimeError("Apply migration 010_areej_finance.sql before deploying this version.")
         finally:
             conn.close()
         return
@@ -239,12 +264,64 @@ def init_db():
     CREATE TABLE IF NOT EXISTS parent_links (
       parent_id INTEGER NOT NULL, student_id INTEGER NOT NULL, PRIMARY KEY(parent_id,student_id)
     );
+    CREATE TABLE IF NOT EXISTS academic_reports (
+      id INTEGER PRIMARY KEY, report_type TEXT NOT NULL, class_id INTEGER NOT NULL,
+      staff_id INTEGER NOT NULL, student_id INTEGER, report_date TEXT NOT NULL,
+      week_start TEXT DEFAULT '', week_end TEXT DEFAULT '', topic TEXT DEFAULT '',
+      duration_minutes INTEGER DEFAULT 0, attendance_count INTEGER DEFAULT 0,
+      progress_notes TEXT DEFAULT '', challenges TEXT DEFAULT '', next_steps TEXT DEFAULT '',
+      score REAL, maximum_score REAL, teacher_comments TEXT DEFAULT '',
+      recommendations TEXT DEFAULT '', status TEXT NOT NULL DEFAULT 'submitted',
+      reviewer_id INTEGER, reviewed_at TEXT, review_note TEXT DEFAULT '',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS lesson_plans (
+      id INTEGER PRIMARY KEY, class_id INTEGER NOT NULL, staff_id INTEGER NOT NULL,
+      lesson_date TEXT NOT NULL, topic TEXT NOT NULL, objectives TEXT DEFAULT '',
+      materials TEXT DEFAULT '', planned_activity TEXT DEFAULT '',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS finance_settings (
+      id INTEGER PRIMARY KEY CHECK (id=1), currency TEXT NOT NULL DEFAULT 'NGN',
+      fees_enabled INTEGER NOT NULL DEFAULT 0, updated_by INTEGER, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS fee_plans (
+      id INTEGER PRIMARY KEY, title TEXT NOT NULL, programme TEXT NOT NULL DEFAULT '',
+      amount REAL NOT NULL CHECK(amount>0), currency TEXT NOT NULL,
+      billing_cycle TEXT NOT NULL DEFAULT 'one_time', is_active INTEGER NOT NULL DEFAULT 1,
+      created_by INTEGER NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS invoices (
+      id INTEGER PRIMARY KEY, student_id INTEGER NOT NULL, fee_plan_id INTEGER,
+      title TEXT NOT NULL, description TEXT DEFAULT '', amount REAL NOT NULL CHECK(amount>0), currency TEXT NOT NULL,
+      due_date TEXT DEFAULT '', status TEXT NOT NULL DEFAULT 'unpaid',
+      created_by INTEGER NOT NULL, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS payments (
+      id INTEGER PRIMARY KEY, invoice_id INTEGER NOT NULL, student_id INTEGER NOT NULL,
+      amount REAL NOT NULL CHECK(amount>0), method TEXT NOT NULL DEFAULT 'manual_transfer',
+      reference TEXT DEFAULT '', proof_path TEXT NOT NULL, proof_name TEXT DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'pending', reviewed_by INTEGER, reviewed_at TEXT,
+      receipt_number TEXT UNIQUE, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
     """)
+    invoice_columns = {row[1] for row in conn.execute("PRAGMA table_info(invoices)")}
+    if "fee_plan_id" not in invoice_columns:
+        conn.execute("ALTER TABLE invoices ADD COLUMN fee_plan_id INTEGER")
     user_columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
     if "is_active" not in user_columns:
         conn.execute("ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
     if "profile_picture" not in user_columns:
         conn.execute("ALTER TABLE users ADD COLUMN profile_picture TEXT")
+    for column, definition in {
+        "age": "INTEGER", "date_of_birth": "TEXT", "gender": "TEXT",
+        "country": "TEXT DEFAULT ''", "state": "TEXT DEFAULT ''",
+        "phone": "TEXT DEFAULT ''", "email": "TEXT DEFAULT ''", "guardian_name": "TEXT DEFAULT ''", "programme": "TEXT DEFAULT ''",
+        "bio": "TEXT DEFAULT ''", "profile_visibility": "TEXT NOT NULL DEFAULT 'contacts'",
+        "show_location": "INTEGER NOT NULL DEFAULT 0"
+    }.items():
+        if column not in user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN " + column + " " + definition)
     message_columns = {row[1] for row in conn.execute("PRAGMA table_info(messages)")}
     for column, definition in {
         "is_read": "INTEGER DEFAULT 0", "read_at": "TEXT", "delivered_at": "TEXT",
@@ -266,6 +343,14 @@ def init_db():
         previous_body TEXT DEFAULT '',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )""")
+    submission_columns = {row[1] for row in conn.execute("PRAGMA table_info(assignment_submissions)")}
+    for column, definition in {
+        "score": "REAL", "feedback": "TEXT DEFAULT ''",
+        "status": "TEXT NOT NULL DEFAULT 'submitted'",
+        "reviewed_by": "INTEGER", "reviewed_at": "TEXT"
+    }.items():
+        if column not in submission_columns:
+            conn.execute("ALTER TABLE assignment_submissions ADD COLUMN " + column + " " + definition)
     # Never create predictable demo accounts automatically.
     # Create the first administrator only when the deployment owner
     # explicitly supplies a private environment variable.
@@ -564,6 +649,7 @@ def open_messages():
 def messages_inbox():
     conn = db()
     user_id = session["user_id"]
+    query = request.args.get("q", "").strip()[:100]
     conn.execute("UPDATE messages SET delivered_at=CURRENT_TIMESTAMP WHERE recipient_id=? AND delivered_at IS NULL", (user_id,))
     conn.commit()
     contacts = []
@@ -578,12 +664,19 @@ def messages_inbox():
             WHERE sender_id=? AND recipient_id=? AND is_read=0
               AND hidden_for_recipient=FALSE AND deleted_for_everyone=FALSE""",
             (contact_id, user_id)).fetchone()["n"]
-        contacts.append({"id": contact_id, "display_name": person["display_name"], "role": person["role"],
+        item = {"id": contact_id, "display_name": person["display_name"], "role": person["role"], "profile_picture": person["profile_picture"],
             "last_message": ((latest["body"] or "").strip() or (latest["attachment_name"] or "Attachment")) if latest else "Start a conversation",
             "last_created_at": latest["created_at"] if latest else "", "unread_count": unread,
-            "has_history": bool(latest)})
+            "has_history": bool(latest)}
+        if query:
+            needle = "%" + query.casefold() + "%"
+            name_match = query.casefold() in (item["display_name"] + " " + item["role"]).casefold()
+            message_match = conn.execute("SELECT 1 FROM messages WHERE ((sender_id=? AND recipient_id=? AND hidden_for_sender=FALSE) OR (sender_id=? AND recipient_id=? AND hidden_for_recipient=FALSE)) AND deleted_for_everyone=FALSE AND LOWER(COALESCE(body,'')) LIKE ? LIMIT 1", (user_id,contact_id,contact_id,user_id,needle)).fetchone()
+            if not name_match and not message_match:
+                continue
+        contacts.append(item)
     contacts.sort(key=lambda item: (bool(item["has_history"]), item["last_created_at"] or "", item["display_name"].casefold()), reverse=True)
-    return render_template("messages.html", contacts=contacts)
+    return render_template("messages.html", contacts=contacts, query=query)
 
 
 @app.route("/messages/<int:contact_id>")
@@ -630,6 +723,13 @@ def settings():
         notifications = request.form.get("message_notifications") == "on"
         read_receipts = request.form.get("read_receipts") == "on"
         display_name = request.form.get("display_name", "").strip()
+        bio = request.form.get("bio", "").strip()[:240]
+        country = request.form.get("country", "").strip()[:100]
+        state = request.form.get("state", "").strip()[:100]
+        profile_visibility = request.form.get("profile_visibility", "contacts")
+        show_location = request.form.get("show_location") == "on"
+        if profile_visibility not in {"contacts", "private"}:
+            abort(400)
         current_password = request.form.get("current_password", "")
         new_password = request.form.get("new_password", "")
         confirm_password = request.form.get("confirm_password", "")
@@ -648,10 +748,11 @@ def settings():
             if new_password != confirm_password:
                 flash("The new password and confirmation do not match.", "error")
                 return redirect(url_for("settings"))
-            conn.execute("UPDATE users SET display_name=?, password_hash=? WHERE id=?",
-                         (display_name, generate_password_hash(new_password), user_id))
+            conn.execute("UPDATE users SET display_name=?, password_hash=?, bio=?, country=?, state=?, profile_visibility=?, show_location=? WHERE id=?",
+                         (display_name, generate_password_hash(new_password), bio, country, state, profile_visibility, show_location, user_id))
         else:
-            conn.execute("UPDATE users SET display_name=? WHERE id=?", (display_name, user_id))
+            conn.execute("UPDATE users SET display_name=?, bio=?, country=?, state=?, profile_visibility=?, show_location=? WHERE id=?",
+                         (display_name, bio, country, state, profile_visibility, show_location, user_id))
         if profile_upload and profile_upload.filename:
             profile_picture_path = save_validated_upload(profile_upload, PROFILE_FOLDER, {"jpg", "jpeg", "png", "webp"})
             if not profile_picture_path:
@@ -666,7 +767,24 @@ def settings():
         session["display_name"] = display_name
         flash("Your settings have been saved.", "success")
         return redirect(url_for("settings"))
-    return render_template("settings.html", preferences=user_preferences_for(conn, user_id))
+    profile_settings = conn.execute("SELECT bio,country,state,profile_visibility,show_location FROM users WHERE id=?", (user_id,)).fetchone()
+    return render_template("settings.html", preferences=user_preferences_for(conn, user_id), profile_settings=profile_settings)
+
+
+@app.route("/profile/<int:user_id>")
+@roles("admin", "staff", "student", "parent")
+def public_profile(user_id):
+    conn = db()
+    current_id = session["user_id"]
+    person = conn.execute("SELECT id,display_name,role,profile_picture,bio,country,state,profile_visibility,show_location,is_active FROM users WHERE id=?", (user_id,)).fetchone()
+    if not person or not person["is_active"]:
+        abort(404)
+    if user_id != current_id:
+        permitted = {int(p["id"]) for p in portal_contacts(conn, session["role"])}
+        history = conn.execute("SELECT 1 FROM messages WHERE (sender_id=? AND recipient_id=?) OR (sender_id=? AND recipient_id=?) LIMIT 1", (current_id,user_id,user_id,current_id)).fetchone()
+        if (user_id not in permitted and not history) or person["profile_visibility"] == "private":
+            abort(403)
+    return render_template("profile.html", person=person, can_view_private=(user_id == current_id))
 
 
 @app.route("/profile/avatar/<int:user_id>")
@@ -680,9 +798,11 @@ def profile_avatar(user_id):
         ).fetchone()
         if user_id not in permitted_ids and not has_history:
             abort(403)
-    row = db().execute("SELECT profile_picture FROM users WHERE id=? AND is_active=TRUE", (user_id,)).fetchone()
+    row = db().execute("SELECT profile_picture, profile_visibility FROM users WHERE id=? AND is_active=TRUE", (user_id,)).fetchone()
     if not row or not row["profile_picture"]:
         abort(404)
+    if user_id != session.get("user_id") and row["profile_visibility"] == "private":
+        abort(403)
     stored_path = row["profile_picture"]
     try:
         content = read_upload(stored_path, PROFILE_FOLDER)
@@ -898,7 +1018,6 @@ def message_attachment(filename):
 def student_dashboard():
     conn = db()
     courses = conn.execute("SELECT DISTINCT c.* FROM courses c JOIN classes cl ON cl.course_id=c.id JOIN enrollments_academic ea ON ea.class_id=cl.id WHERE ea.student_id=? ORDER BY c.name", (session["user_id"],)).fetchall()
-    if not courses: courses = conn.execute("SELECT * FROM courses ORDER BY name LIMIT 20").fetchall()
     classes = conn.execute("SELECT cl.* FROM classes cl JOIN enrollments_academic ea ON ea.class_id=cl.id WHERE ea.student_id=? ORDER BY cl.schedule", (session["user_id"],)).fetchall()
     assignments = conn.execute("SELECT a.*, cl.name AS class_name FROM assignments a JOIN classes cl ON cl.id=a.class_id JOIN enrollments_academic ea ON ea.class_id=cl.id WHERE ea.student_id=? ORDER BY a.due_date", (session["user_id"],)).fetchall()
     results = conn.execute("SELECT * FROM results WHERE student_id=? ORDER BY created_at DESC", (session["user_id"],)).fetchall()
@@ -1008,17 +1127,58 @@ def admin_dashboard():
             display_name = request.form.get(name_field, "").strip()
             username = request.form.get(username_field, "").strip().lower()
             password = request.form.get(password_field, "")
-            if not display_name or not username or not password:
-                flash(f"Please enter the {label.lower()} name, username and password.", "error")
-            elif len(password) < 8:
-                flash("The password must contain at least 8 characters.", "error")
+            age_value = None
+            dob = gender = country = state = phone = email = guardian_name = programme = ""
+            if role == "student":
+                try:
+                    age_value = int(request.form.get("student_age", "").strip())
+                except (TypeError, ValueError):
+                    age_value = 0
+                dob = request.form.get("date_of_birth", "").strip()
+                gender = request.form.get("gender", "").strip()
+                country = request.form.get("country", "").strip()
+                state = request.form.get("state", "").strip()
+                phone = request.form.get("student_phone", "").strip()
+                email = request.form.get("student_email", "").strip()
+                guardian_name = request.form.get("guardian_name", "").strip()
+                programme = request.form.get("programme", "").strip()
+                if not display_name or age_value < 3 or gender not in {"Male", "Female"} or not country or not state or not programme:
+                    flash("Student registration requires the full name, age (minimum 3), gender, programme, country and state.", "error")
+                    return redirect(url_for("admin_dashboard", _anchor=anchor))
+                if dob:
+                    try:
+                        birth_date = datetime.date.fromisoformat(dob)
+                        today = datetime.date.today()
+                        calculated_age = today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
+                        if birth_date > today or calculated_age < 3:
+                            raise ValueError
+                        age_value = calculated_age
+                    except ValueError:
+                        flash("Enter a valid date of birth. The student must be at least 3 years old.", "error")
+                        return redirect(url_for("admin_dashboard", _anchor=anchor))
+            generated = not username and not password
+            if generated:
+                base = "".join(ch for ch in display_name.lower() if ch.isalnum())[:18] or role
+                username = base
+                suffix = 1
+                while conn.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone():
+                    username = base + str(suffix)
+                    suffix += 1
+                password = secrets.token_urlsafe(10)
+            elif not display_name or not username or len(password) < 8:
+                flash("Enter a name and username with a password of at least 8 characters, or leave both credential fields blank for automatic generation.", "error")
+                return redirect(url_for("admin_dashboard", _anchor=anchor))
             elif conn.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone():
                 flash("That username is already in use. Please choose another one.", "error")
+                return redirect(url_for("admin_dashboard", _anchor=anchor))
+            conn.execute("""INSERT INTO users(username,password_hash,role,display_name,is_active,age,date_of_birth,gender,country,state,phone,email,guardian_name,programme)
+                VALUES(?,?,?,?,TRUE,?,?,?,?,?,?,?,?,?)""",
+                (username, generate_password_hash(password), role, display_name, age_value, dob or None, gender or None, country, state, phone, email, guardian_name, programme))
+            conn.commit()
+            if generated:
+                flash("Account created. Hand these temporary credentials to the student securely — Username: " + username + " | Temporary password: " + password + ". This password will not be shown again.", "success")
             else:
-                conn.execute("INSERT INTO users(username,password_hash,role,display_name,is_active) VALUES(?,?,?,?,TRUE)",
-                             (username, generate_password_hash(password), role, display_name))
-                conn.commit()
-                flash(f"{label} account created for {display_name}. Username: {username}", "success")
+                flash(label + " account created for " + display_name + ". Username: " + username, "success")
             return redirect(url_for("admin_dashboard", _anchor=anchor))
 
         name = request.form.get("name","").strip()
@@ -1406,6 +1566,18 @@ def too_many_requests(error):
         "error.html", code=429,
         message="Too many requests. Please wait a few minutes and try again."
     ), 429
+
+# Register the academic reports and assignment-review workspace.
+from academic_workspace import register_academic_routes
+register_academic_routes(app, db, roles)
+
+# Register enrolled-student learning and linked-parent progress pages.
+from learning_centre import register_learning_routes
+register_learning_routes(app, db, roles)
+
+# Register private finance routes. Fee settings start disabled and no amounts are seeded.
+from finance_portal import register_finance_routes
+register_finance_routes(app, db, roles, save_validated_upload, read_upload, UPLOAD_FOLDER)
 
 # Initialize the selected database when imported by a WSGI server such as Gunicorn.
 # SQLite setup is idempotent; PostgreSQL mode only validates the pre-provisioned

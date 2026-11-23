@@ -116,3 +116,105 @@ def test_login_attempts_migration_creates_private_table_and_index():
             compat.close()
 
         conn.execute("DROP SCHEMA areej_app CASCADE")
+
+
+def test_academic_reports_migration_adds_reports_and_submission_review_fields():
+    import psycopg
+
+    migration = (
+        Path(__file__).resolve().parents[1]
+        / "migrations"
+        / "009_areej_academic_reports.sql"
+    )
+    with psycopg.connect(DATABASE_URL) as conn:
+        conn.execute("DROP SCHEMA IF EXISTS areej_app CASCADE")
+        conn.execute("CREATE SCHEMA areej_app")
+        for role in ("service_role", "anon", "authenticated"):
+            if not conn.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (role,)).fetchone():
+                conn.execute(f"CREATE ROLE {role} NOLOGIN")
+        conn.execute("CREATE TABLE areej_app.users (id bigserial PRIMARY KEY)")
+        conn.execute("CREATE TABLE areej_app.classes (id bigserial PRIMARY KEY)")
+        conn.execute("CREATE TABLE areej_app.assignment_submissions (id bigserial PRIMARY KEY)")
+        for statement in migration.read_text(encoding="utf-8").split(";"):
+            if statement.strip():
+                conn.execute(statement)
+        columns = {
+            row[0] for row in conn.execute(
+                "SELECT column_name FROM information_schema.columns WHERE table_schema='areej_app' AND table_name='assignment_submissions'"
+            ).fetchall()
+        }
+        assert {"score","feedback","status","reviewed_by","reviewed_at"}.issubset(columns)
+        reports = conn.execute(
+            "SELECT table_name FROM information_schema.tables WHERE table_schema='areej_app' AND table_name='academic_reports'"
+        ).fetchone()
+        assert reports is not None
+        assert conn.execute("SELECT relrowsecurity FROM pg_class WHERE oid='areej_app.academic_reports'::regclass").fetchone()[0] is True
+        lesson_plans = conn.execute("SELECT table_name FROM information_schema.tables WHERE table_schema='areej_app' AND table_name='lesson_plans'").fetchone()
+        assert lesson_plans is not None
+        assert conn.execute("SELECT relrowsecurity FROM pg_class WHERE oid='areej_app.lesson_plans'::regclass").fetchone()[0] is True
+        conn.execute("DROP SCHEMA areej_app CASCADE")
+        conn.commit()
+
+
+def test_private_finance_migration_creates_unseeded_tables_and_restricts_client_roles():
+    import psycopg
+
+    migration = Path(__file__).resolve().parents[1] / "migrations" / "010_areej_finance.sql"
+    with psycopg.connect(DATABASE_URL) as conn:
+        conn.execute("DROP SCHEMA IF EXISTS areej_app CASCADE")
+        conn.execute("CREATE SCHEMA areej_app")
+        for role in ("service_role", "anon", "authenticated"):
+            if not conn.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (role,)).fetchone():
+                conn.execute(f"CREATE ROLE {role} NOLOGIN")
+        conn.execute("CREATE TABLE areej_app.users (id bigserial PRIMARY KEY)")
+        for statement in migration.read_text(encoding="utf-8").split(";"):
+            if statement.strip():
+                conn.execute(statement)
+        tables = {
+            row[0] for row in conn.execute(
+                "SELECT table_name FROM information_schema.tables WHERE table_schema='areej_app'"
+            ).fetchall()
+        }
+        assert {"finance_settings","fee_plans","invoices","payments"}.issubset(tables)
+        assert conn.execute("SELECT COUNT(*) FROM areej_app.finance_settings").fetchone()[0] == 0
+        invoice_columns={row[0] for row in conn.execute("SELECT column_name FROM information_schema.columns WHERE table_schema='areej_app' AND table_name='invoices'").fetchall()}
+        assert "fee_plan_id" in invoice_columns
+        for table in ("finance_settings","fee_plans","invoices","payments"):
+            assert conn.execute("SELECT relrowsecurity FROM pg_class WHERE oid=%s::regclass", (f"areej_app.{table}",)).fetchone()[0] is True
+        for role in ("anon","authenticated"):
+            assert not conn.execute("SELECT has_table_privilege(%s,'areej_app.invoices','SELECT')",(role,)).fetchone()[0]
+            assert not conn.execute("SELECT has_table_privilege(%s,'areej_app.payments','SELECT')",(role,)).fetchone()[0]
+        conn.execute("DROP SCHEMA areej_app CASCADE")
+        conn.commit()
+
+
+def test_student_profiles_migration_adds_private_and_public_profile_fields():
+    import psycopg
+
+    migration = (
+        Path(__file__).resolve().parents[1]
+        / "migrations"
+        / "008_areej_student_profiles.sql"
+    )
+    with psycopg.connect(DATABASE_URL) as conn:
+        conn.execute("DROP SCHEMA IF EXISTS areej_app CASCADE")
+        conn.execute("CREATE SCHEMA areej_app")
+        conn.execute("CREATE TABLE areej_app.users (id bigserial PRIMARY KEY)")
+        for statement in migration.read_text(encoding="utf-8").split(";"):
+            if statement.strip():
+                conn.execute(statement)
+        columns = {
+            row[0] for row in conn.execute(
+                "SELECT column_name FROM information_schema.columns WHERE table_schema='areej_app' AND table_name='users'"
+            ).fetchall()
+        }
+        assert {
+            "age", "date_of_birth", "gender", "country", "state", "phone",
+            "email", "guardian_name", "programme", "bio", "profile_visibility",
+            "show_location",
+        }.issubset(columns)
+        conn.execute("INSERT INTO areej_app.users(profile_visibility) VALUES('private')")
+        with pytest.raises(Exception):
+            conn.execute("INSERT INTO areej_app.users(profile_visibility) VALUES('everyone')")
+        conn.rollback()
+        conn.execute("DROP SCHEMA areej_app CASCADE")

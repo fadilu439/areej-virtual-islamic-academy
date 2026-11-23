@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Private Finance | Areej Academy{% endblock %}
+{% block heading %}Finance & Payment Records{% endblock %}
+{% block content %}
+<section class="hero"><small>PRIVATE FINANCE WORKSPACE</small><h2>Invoices, payments and receipts</h2><p>Fee amounts are never displayed publicly. Finance remains inactive until the academy administrator privately enables it and issues an invoice.</p></section>
+{% if role == 'admin' %}
+<div class="columns">
+<section class="panel"><small>PRIVATE CONFIGURATION</small><h2>Finance Settings</h2>
+<form class="course-form" method="post" action="{{ url_for('finance_settings_update') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<label>Currency code</label><input name="currency" value="{{ settings.currency if settings else 'NGN' }}" minlength="3" maxlength="3" required>
+<label><input type="checkbox" name="fees_enabled" value="1" {% if settings and settings.fees_enabled %}checked{% endif %}> Enable private invoices and payment records</label>
+<button class="btn primary">Save Private Settings</button></form><p class="muted">No default tuition amount or public price is configured.</p>
+{% if settings and settings.fees_enabled %}<hr><h3>Create a Private Fee Plan</h3>
+<form class="course-form" method="post" action="{{ url_for('finance_create_fee_plan') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<label>Plan title</label><input name="title" maxlength="160" required placeholder="e.g. Arabic Language - Term">
+<label>Programme / Grade (optional)</label><input name="programme" maxlength="120" placeholder="Programme or grade">
+<label>Private amount</label><input type="number" name="amount" min="0.01" step="0.01" required>
+<label>Billing cycle</label><select name="billing_cycle"><option value="one_time">One time</option><option value="monthly">Monthly</option><option value="termly">Termly</option><option value="custom">Custom</option></select>
+<button class="btn primary">Save Private Fee Plan</button></form>
+{% if fee_plans %}<div class="mini-list">{% for p in fee_plans %}<div><strong>{{ p.title }}</strong><span>{{ p.programme }} · {{ p.currency }} {{ '%.2f'|format(p.amount) }} · {{ p.billing_cycle|title }}</span></div>{% endfor %}</div>{% endif %}{% endif %}
+</section>
+<section class="panel"><small>CREATE INVOICE</small><h2>Issue a Private Invoice</h2>
+{% if settings and settings.fees_enabled %}<form class="course-form" method="post" action="{{ url_for('finance_create_invoice') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<label>Student</label><select name="student_id" required>{% for s in students %}<option value="{{ s.id }}">{{ s.display_name }}</option>{% endfor %}</select>
+<label>Use a private fee plan (optional)</label><select name="fee_plan_id"><option value="">Manual invoice amount</option>{% for p in fee_plans %}<option value="{{ p.id }}">{{ p.title }} · {{ p.currency }} {{ '%.2f'|format(p.amount) }}</option>{% endfor %}</select>
+<label>Invoice title (leave blank to use selected plan)</label><input name="title" maxlength="160" placeholder="Programme or service">
+<label>Description</label><textarea name="description" maxlength="2000"></textarea>
+<label>Manual amount (required only without a plan)</label><input type="number" name="amount" min="0.01" step="0.01">
+<label>Due date (optional)</label><input type="date" name="due_date">
+<button class="btn primary">Create Invoice</button></form>{% else %}<p class="muted">Enable finance settings first. Fee values remain unset until the academy decides them.</p>{% endif %}
+</section></div>
+{% endif %}
+<section class="panel"><small>INVOICES</small><h2>{% if role=='admin' %}All Student Invoices{% else %}My Invoices / Linked Children{% endif %}</h2>
+{% if invoices %}<div class="table-wrap"><table><thead><tr><th>Invoice</th>{% if role!='student' %}<th>Student</th>{% endif %}<th>Amount</th><th>Due</th><th>Status</th><th>Payment</th></tr></thead><tbody>
+{% for i in invoices %}<tr><td><b>{{ i.title }}</b><br><small>{{ i.description }}</small></td>{% if role!='student' %}<td>{{ i.student_name }}</td>{% endif %}<td>{{ i.currency }} {{ '%.2f'|format(i.amount) }}</td><td>{{ i.due_date or 'Not set' }}</td><td>{{ i.status|title }}</td><td>
+{% if role in ['student','parent'] and i.status!='paid' %}<form method="post" enctype="multipart/form-data" action="{{ url_for('finance_submit_payment',invoice_id=i.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="number" name="amount" min="0.01" max="{{ i.amount }}" step="0.01" placeholder="Amount" required><input name="reference" maxlength="120" placeholder="Transfer reference"><input type="file" name="payment_proof" accept=".jpg,.jpeg,.png,.pdf" required><button class="btn primary">Submit Proof</button></form>{% else %}—{% endif %}</td></tr>{% endfor %}
+</tbody></table></div>{% else %}<p class="muted">No invoices have been issued.</p>{% endif %}
+</section>
+<section class="panel"><small>PAYMENT HISTORY</small><h2>{% if role=='admin' %}Review Payments{% else %}Payment Status & Receipts{% endif %}</h2>
+{% if payments %}<div class="table-wrap"><table><thead><tr><th>Invoice</th>{% if role!='student' %}<th>Student</th>{% endif %}<th>Amount</th><th>Status</th><th>Reference / Receipt</th>{% if role=='admin' %}<th>Review</th>{% endif %}</tr></thead><tbody>
+{% for p in payments %}<tr><td>{{ p.invoice_title }}</td>{% if role!='student' %}<td>{{ p.student_name }}</td>{% endif %}<td>{{ p.amount }}</td><td>{{ p.status|title }}</td><td>{% if p.receipt_number %}<a href="{{ url_for('finance_receipt', payment_id=p.id) }}">View Receipt</a>{% else %}{{ p.reference or 'Awaiting confirmation' }}{% endif %}</td>{% if role=='admin' %}<td><a href="{{ url_for('finance_payment_proof',payment_id=p.id) }}">View proof</a>{% if p.status=='pending' %}<form method="post" action="{{ url_for('finance_review_payment',payment_id=p.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><button class="btn primary" name="decision" value="confirmed">Confirm & Receipt</button><button class="btn" name="decision" value="rejected">Reject</button></form>{% endif %}</td>{% endif %}</tr>{% endfor %}
+</tbody></table></div>{% else %}<p class="muted">No payment records yet.</p>{% endif %}
+</section>
+{% endblock %}
