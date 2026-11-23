@@ -172,6 +172,9 @@ def init_db():
                 AND column_name IN ('score','feedback','status','reviewed_by','reviewed_at')""").fetchone()
             if not academic_tables or not academic_tables["reports"] or not academic_tables["submissions"] or submission_columns["n"] != 5:
                 raise RuntimeError("Apply migration 009_areej_academic_reports.sql before deploying this version.")
+            lesson_plans = conn.execute("SELECT to_regclass('areej_app.lesson_plans') AS table_name").fetchone()
+            if not lesson_plans or not lesson_plans["table_name"]:
+                raise RuntimeError("Apply migration 009_areej_academic_reports.sql before deploying this version.")
             finance_tables = conn.execute("""SELECT
                 to_regclass('areej_app.finance_settings') AS settings,
                 to_regclass('areej_app.invoices') AS invoices,
@@ -265,6 +268,12 @@ def init_db():
       score REAL, maximum_score REAL, teacher_comments TEXT DEFAULT '',
       recommendations TEXT DEFAULT '', status TEXT NOT NULL DEFAULT 'submitted',
       reviewer_id INTEGER, reviewed_at TEXT, review_note TEXT DEFAULT '',
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+    CREATE TABLE IF NOT EXISTS lesson_plans (
+      id INTEGER PRIMARY KEY, class_id INTEGER NOT NULL, staff_id INTEGER NOT NULL,
+      lesson_date TEXT NOT NULL, topic TEXT NOT NULL, objectives TEXT DEFAULT '',
+      materials TEXT DEFAULT '', planned_activity TEXT DEFAULT '',
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     );
     CREATE TABLE IF NOT EXISTS finance_settings (
