@@ -527,3 +527,35 @@ def test_user_can_hide_message_from_own_chat_only(client):
         row = app_module.db().execute("SELECT hidden_for_sender, hidden_for_recipient FROM messages WHERE id=?", (message_id,)).fetchone()
         assert row["hidden_for_sender"] in (1, True)
         assert row["hidden_for_recipient"] in (0, False)
+
+
+
+def test_admin_directory_search_is_paginated_and_role_scoped(client):
+    with app_module.app.app_context():
+        conn = app_module.db()
+        for index in range(30):
+            conn.execute(
+                "INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+                (f"directory-{index}", generate_password_hash("password 1234"), "student", f"Directory Student {index:02d}"),
+            )
+        conn.commit()
+    with client.session_transaction() as session:
+        session.update(user_id=1, username="admin-test", role="admin", csrf_token="test-csrf")
+    first = client.get("/admin/directory/students")
+    assert first.status_code == 200
+    assert b"Page 1 of 2" in first.data
+    assert b"Directory Student 00" in first.data
+    assert b"Directory Student 29" not in first.data
+    second = client.get("/admin/directory/students?page=2")
+    assert second.status_code == 200
+    assert b"Directory Student 29" in second.data
+    search = client.get("/admin/directory/students?q=Directory%20Student%2029")
+    assert search.status_code == 200
+    assert b"Directory Student 29" in search.data
+    assert b"admin-test" not in search.data
+
+
+def test_non_admin_cannot_open_admin_directory(client):
+    with client.session_transaction() as session:
+        session.update(user_id=2, username="student-test", role="student", csrf_token="student-csrf")
+    assert client.get("/admin/directory/students").status_code == 403
