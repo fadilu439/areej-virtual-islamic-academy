@@ -146,6 +146,7 @@ def test_admin_can_create_account_with_8_character_password(client):
             "csrf_token": "test-csrf",
             "action": "add_student",
             "student_name": "New Student",
+            "student_age": "8", "gender": "Female", "country": "Nigeria", "state": "Kano", "programme": "Islamic Studies",
             "student_username": "new-student",
             "student_password": "pass1234",
         },
@@ -617,7 +618,7 @@ def test_student_registration_generates_secure_account_and_saves_private_details
         "csrf_token": "test-csrf", "action": "add_student",
         "student_name": "Generated Learner", "student_age": "9",
         "date_of_birth": "2017-06-01", "gender": "Female",
-        "country": "Nigeria", "state": "Kano", "programme": "Arabic Language", "student_phone": "08000000000",
+        "country": "Nigeria", "state": "Kano", "student_phone": "08000000000",
         "student_email": "learner@example.test", "guardian_name": "Parent Name",
         "programme": "Arabic Language",
     })
