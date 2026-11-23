@@ -365,7 +365,7 @@ def download_backup():
     with zipfile.ZipFile(memory_file, "w", zipfile.ZIP_DEFLATED) as archive:
         if DB_PATH.exists():
             archive.write(DB_PATH, "areej_academy.db")
-        for directory in (UPLOAD_FOLDER, MESSAGE_FOLDER):
+        for directory in (UPLOAD_FOLDER, MESSAGE_FOLDER, PROFILE_FOLDER):
             if directory.exists():
                 for file_path in directory.rglob("*"):
                     if file_path.is_file():
