@@ -33,7 +33,8 @@ def register_finance_routes(app, db, roles, save_upload, read_upload, upload_fol
             else:
                 invoices=[]; payments=[]
         students=conn.execute("SELECT id,display_name FROM users WHERE role='student' AND is_active=1 ORDER BY display_name").fetchall() if session["role"]=="admin" else []
-        return render_template("finance.html",settings=settings,invoices=invoices,payments=payments,students=students,role=session["role"])
+        fee_plans=conn.execute("SELECT * FROM fee_plans WHERE is_active=TRUE ORDER BY title").fetchall() if session["role"]=="admin" else []
+        return render_template("finance.html",settings=settings,invoices=invoices,payments=payments,students=students,fee_plans=fee_plans,role=session["role"])
 
     @app.route("/admin/finance/settings", methods=["POST"])
     @roles("admin")
@@ -53,6 +54,29 @@ def register_finance_routes(app, db, roles, save_upload, read_upload, upload_fol
         flash("Private finance settings saved. No fee amount has been published.", "success")
         return redirect(url_for("finance_portal"))
 
+    @app.route("/admin/finance/plans/create", methods=["POST"])
+    @roles("admin")
+    def finance_create_fee_plan():
+        conn=db()
+        settings=conn.execute("SELECT * FROM finance_settings WHERE id=1").fetchone()
+        if not settings or not settings["fees_enabled"]:
+            flash("Enable private finance settings before creating a fee plan.", "error")
+            return redirect(url_for("finance_portal"))
+        title=request.form.get("title","").strip()[:160]
+        programme=request.form.get("programme","").strip()[:120]
+        cycle=request.form.get("billing_cycle","one_time")
+        try:
+            amount=round(float(request.form.get("amount","")),2)
+        except (ValueError,TypeError):
+            abort(400)
+        if not title or not math.isfinite(amount) or amount<=0 or cycle not in {"one_time","monthly","termly","custom"}:
+            abort(400)
+        conn.execute("""INSERT INTO fee_plans(title,programme,amount,currency,billing_cycle,created_by)
+            VALUES(?,?,?,?,?,?)""",(title,programme,amount,settings["currency"],cycle,session["user_id"]))
+        conn.commit()
+        flash("Private fee plan saved. It is not published publicly.", "success")
+        return redirect(url_for("finance_portal"))
+
     @app.route("/admin/finance/invoices/create", methods=["POST"])
     @roles("admin")
     def finance_create_invoice():
@@ -66,16 +90,27 @@ def register_finance_routes(app, db, roles, save_upload, read_upload, upload_fol
         title=request.form.get("title","").strip()[:160]
         description=request.form.get("description","").strip()[:2000]
         due_date=request.form.get("due_date","").strip()
+        plan_id=request.form.get("fee_plan_id") or None
         try:
-            amount=round(float(request.form.get("amount","")),2)
             if due_date: datetime.date.fromisoformat(due_date)
+            if plan_id:
+                plan=conn.execute("SELECT * FROM fee_plans WHERE id=? AND is_active=TRUE",(plan_id,)).fetchone()
+                if not plan:
+                    abort(400)
+                amount=float(plan["amount"])
+                currency=plan["currency"]
+                title=title or plan["title"]
+                description=description or plan["programme"]
+            else:
+                amount=round(float(request.form.get("amount","")),2)
+                currency=settings["currency"]
         except (ValueError,TypeError):
             abort(400)
         if not student or not title or not math.isfinite(amount) or amount<=0:
             abort(400)
-        conn.execute("""INSERT INTO invoices(student_id,title,description,amount,currency,due_date,status,created_by)
-            VALUES(?,?,?,?,?,?,'unpaid',?)""",
-            (student_id,title,description,amount,settings["currency"],due_date,session["user_id"]))
+        conn.execute("""INSERT INTO invoices(student_id,fee_plan_id,title,description,amount,currency,due_date,status,created_by)
+            VALUES(?,?,?,?,?,?,?,'unpaid',?)""",
+            (student_id,plan_id,title,description,amount,currency,due_date,session["user_id"]))
         conn.commit()
         flash("Private invoice created.", "success")
         return redirect(url_for("finance_portal"))
