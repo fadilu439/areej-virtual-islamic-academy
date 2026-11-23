@@ -116,3 +116,35 @@ def test_login_attempts_migration_creates_private_table_and_index():
             compat.close()
 
         conn.execute("DROP SCHEMA areej_app CASCADE")
+
+
+def test_student_profiles_migration_adds_private_and_public_profile_fields():
+    import psycopg
+
+    migration = (
+        Path(__file__).resolve().parents[1]
+        / "migrations"
+        / "008_areej_student_profiles.sql"
+    )
+    with psycopg.connect(DATABASE_URL) as conn:
+        conn.execute("DROP SCHEMA IF EXISTS areej_app CASCADE")
+        conn.execute("CREATE SCHEMA areej_app")
+        conn.execute("CREATE TABLE areej_app.users (id bigserial PRIMARY KEY)")
+        for statement in migration.read_text(encoding="utf-8").split(";"):
+            if statement.strip():
+                conn.execute(statement)
+        columns = {
+            row[0] for row in conn.execute(
+                "SELECT column_name FROM information_schema.columns WHERE table_schema='areej_app' AND table_name='users'"
+            ).fetchall()
+        }
+        assert {
+            "age", "date_of_birth", "gender", "country", "state", "phone",
+            "email", "guardian_name", "programme", "bio", "profile_visibility",
+            "show_location",
+        }.issubset(columns)
+        conn.execute("INSERT INTO areej_app.users(profile_visibility) VALUES('private')")
+        with pytest.raises(Exception):
+            conn.execute("INSERT INTO areej_app.users(profile_visibility) VALUES('everyone')")
+        conn.rollback()
+        conn.execute("DROP SCHEMA areej_app CASCADE")
