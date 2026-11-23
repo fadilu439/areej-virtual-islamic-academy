@@ -175,9 +175,11 @@ def test_private_finance_migration_creates_unseeded_tables_and_restricts_client_
                 "SELECT table_name FROM information_schema.tables WHERE table_schema='areej_app'"
             ).fetchall()
         }
-        assert {"finance_settings","invoices","payments"}.issubset(tables)
+        assert {"finance_settings","fee_plans","invoices","payments"}.issubset(tables)
         assert conn.execute("SELECT COUNT(*) FROM areej_app.finance_settings").fetchone()[0] == 0
-        for table in ("finance_settings","invoices","payments"):
+        invoice_columns={row[0] for row in conn.execute("SELECT column_name FROM information_schema.columns WHERE table_schema='areej_app' AND table_name='invoices'").fetchall()}
+        assert "fee_plan_id" in invoice_columns
+        for table in ("finance_settings","fee_plans","invoices","payments"):
             assert conn.execute("SELECT relrowsecurity FROM pg_class WHERE oid=%s::regclass", (f"areej_app.{table}",)).fetchone()[0] is True
         for role in ("anon","authenticated"):
             assert not conn.execute("SELECT has_table_privilege(%s,'areej_app.invoices','SELECT')",(role,)).fetchone()[0]
