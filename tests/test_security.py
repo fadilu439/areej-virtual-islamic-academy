@@ -20,7 +20,7 @@ def clean_database():
     with app_module.app.app_context():
         conn = app_module.db()
         for table in (
-            "message_history", "assignment_submissions", "attendance", "results", "assignments",
+            "message_history", "academic_reports", "assignment_submissions", "attendance", "results", "assignments",
             "learning_materials", "announcements", "parent_links", "user_preferences",
             "enrollments_academic", "classes", "messages", "enrollments",
             "courses", "login_attempts", "users",
@@ -231,6 +231,71 @@ def test_staff_sees_only_students_enrolled_in_their_classes(client):
     assert b"Private Student" not in response.data
     from html import unescape
     assert "Teacher's Class" in unescape(response.get_data(as_text=True))
+
+
+def test_staff_can_submit_report_only_for_owned_class(client):
+    with app_module.app.app_context():
+        conn = app_module.db()
+        staff_id = conn.execute(
+            "INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+            ("report-teacher", generate_password_hash("teacher password 123"), "staff", "Report Teacher"),
+        ).lastrowid
+        other_staff_id = conn.execute(
+            "INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+            ("other-teacher", generate_password_hash("teacher password 123"), "staff", "Other Teacher"),
+        ).lastrowid
+        owned_class = conn.execute("INSERT INTO classes(teacher_id,name) VALUES(?,?)", (staff_id, "Owned Class")).lastrowid
+        foreign_class = conn.execute("INSERT INTO classes(teacher_id,name) VALUES(?,?)", (other_staff_id, "Other Class")).lastrowid
+        conn.commit()
+    with client.session_transaction() as session:
+        session.update(user_id=staff_id, username="report-teacher", role="staff", csrf_token="report-csrf")
+    good = client.post("/staff/reports/create", data={
+        "csrf_token":"report-csrf","report_type":"daily","class_id":str(owned_class),
+        "report_date":"2026-11-23","topic":"Tajweed lesson","duration_minutes":"40",
+        "attendance_count":"5","progress_notes":"Students practised articulation.",
+        "submit_action":"submit",
+    })
+    assert good.status_code == 302
+    with app_module.app.app_context():
+        assert app_module.db().execute("SELECT COUNT(*) AS n FROM academic_reports WHERE staff_id=?", (staff_id,)).fetchone()["n"] == 1
+    denied = client.post("/staff/reports/create", data={
+        "csrf_token":"report-csrf","report_type":"daily","class_id":str(foreign_class),
+        "report_date":"2026-11-23","topic":"Unauthorized","duration_minutes":"40",
+        "attendance_count":"0","submit_action":"submit",
+    })
+    assert denied.status_code == 403
+
+
+def test_student_cannot_open_staff_or_admin_report_workspaces(client):
+    with client.session_transaction() as session:
+        session.update(user_id=2, username="student-test", role="student", csrf_token="student-csrf")
+    assert client.get("/staff/reports").status_code == 403
+    assert client.get("/admin/reports").status_code == 403
+
+
+def test_admin_can_review_submitted_academic_report(client):
+    with app_module.app.app_context():
+        conn = app_module.db()
+        staff_id = conn.execute(
+            "INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+            ("review-teacher", generate_password_hash("teacher password 123"), "staff", "Review Teacher"),
+        ).lastrowid
+        class_id = conn.execute("INSERT INTO classes(teacher_id,name) VALUES(?,?)", (staff_id, "Review Class")).lastrowid
+        report_id = conn.execute("""INSERT INTO academic_reports
+            (report_type,class_id,staff_id,report_date,topic,status)
+            VALUES('daily',?,?,?,'Lesson','submitted')""", (class_id,staff_id,"2026-11-23")).lastrowid
+        conn.commit()
+    with client.session_transaction() as session:
+        session.update(user_id=1, username="admin-test", role="admin", csrf_token="admin-review-csrf")
+    response = client.post(f"/admin/reports/{report_id}/review", data={
+        "csrf_token":"admin-review-csrf","decision":"approved","review_note":"Reviewed and approved."
+    })
+    assert response.status_code == 302
+    with app_module.app.app_context():
+        report = app_module.db().execute("SELECT status,reviewer_id,review_note FROM academic_reports WHERE id=?", (report_id,)).fetchone()
+        assert report["status"] == "approved"
+        assert report["reviewer_id"] == 1
+        assert report["review_note"] == "Reviewed and approved."
 
 
 def test_health_endpoint_checks_database(client):
