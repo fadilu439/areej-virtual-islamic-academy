@@ -937,6 +937,8 @@ def admin_directory(kind):
         where = " WHERE (LOWER(name) LIKE ? OR LOWER(COALESCE(description,'')) LIKE ?)" if query else ""
         params = [f"%{query.casefold()}%", f"%{query.casefold()}%"] if query else []
         total = conn.execute("SELECT COUNT(*) AS n FROM courses" + where, params).fetchone()["n"]
+        pages = max(1, math.ceil(total / per_page))
+        page = min(page, pages)
         rows = conn.execute("SELECT id, name, description, created_at FROM courses" + where +
             " ORDER BY name LIMIT ? OFFSET ?", params + [per_page, (page - 1) * per_page]).fetchall()
     else:
@@ -951,10 +953,10 @@ def admin_directory(kind):
             params.extend([f"%{query.casefold()}%", f"%{query.casefold()}%"])
         where = " WHERE " + " AND ".join(clauses)
         total = conn.execute("SELECT COUNT(*) AS n FROM users" + where, params).fetchone()["n"]
+        pages = max(1, math.ceil(total / per_page))
+        page = min(page, pages)
         rows = conn.execute("SELECT id, username, display_name, role, is_active FROM users" + where +
             " ORDER BY display_name LIMIT ? OFFSET ?", params + [per_page, (page - 1) * per_page]).fetchall()
-    pages = max(1, math.ceil(total / per_page))
-    page = min(page, pages)
     return render_template("admin_directory.html", kind=kind, rows=rows, total=total,
         page=page, pages=pages, per_page=per_page, query=query, status=status)
 
