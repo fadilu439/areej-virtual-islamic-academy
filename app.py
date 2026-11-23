@@ -45,7 +45,7 @@ app.secret_key = configured_secret_key()
 app.config.update(
     SESSION_COOKIE_HTTPONLY=True,
     SESSION_COOKIE_SAMESITE="Lax",
-    SESSION_COOKIE_SECURE=os.environ.get("AREEJ_COOKIE_SECURE", "0") == "1",
+    SESSION_COOKIE_SECURE=os.environ.get("AREEJ_COOKIE_SECURE", "1" if os.environ.get("RENDER", "").lower() == "true" else "0") == "1",
     MAX_CONTENT_LENGTH=5 * 1024 * 1024,
 )
 
@@ -69,9 +69,10 @@ def csrf_guard():
 @app.after_request
 def prevent_login_form_caching(response):
     if request.endpoint == "login":
-        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        response.headers["Cache-Control"] = "private, no-store, no-cache, must-revalidate, max-age=0"
         response.headers["Pragma"] = "no-cache"
         response.headers["Expires"] = "0"
+        response.headers["Vary"] = "Cookie"
     return response
 
 def valid_upload_signature(upload, extension):

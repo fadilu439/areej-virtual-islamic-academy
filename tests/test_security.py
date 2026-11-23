@@ -990,3 +990,18 @@ def test_message_search_filters_contacts_by_name_or_message_body(client):
     assert response.status_code == 200
     assert b"Test Student" in response.data
     assert b"Search" in response.data
+
+
+
+def test_login_page_is_not_cacheable_and_varies_by_session_cookie(client):
+    response = client.get("/login")
+    assert "no-store" in response.headers["Cache-Control"]
+    assert "private" in response.headers["Cache-Control"]
+    assert response.headers["Vary"] == "Cookie"
+
+
+def test_login_page_refreshes_when_restored_from_back_forward_cache(client):
+    response = client.get("/login")
+    assert b'window.addEventListener("pageshow"' in response.data
+    assert b'if (event.persisted)' in response.data
+    assert b'window.location.reload()' in response.data
