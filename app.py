@@ -727,9 +727,11 @@ def profile_avatar(user_id):
         ).fetchone()
         if user_id not in permitted_ids and not has_history:
             abort(403)
-    row = db().execute("SELECT profile_picture FROM users WHERE id=? AND is_active=TRUE", (user_id,)).fetchone()
+    row = db().execute("SELECT profile_picture, profile_visibility FROM users WHERE id=? AND is_active=TRUE", (user_id,)).fetchone()
     if not row or not row["profile_picture"]:
         abort(404)
+    if user_id != session.get("user_id") and row["profile_visibility"] == "private":
+        abort(403)
     stored_path = row["profile_picture"]
     try:
         content = read_upload(stored_path, PROFILE_FOLDER)
