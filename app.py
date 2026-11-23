@@ -139,6 +139,12 @@ def init_db():
                 WHERE table_schema='areej_app' AND table_name='users' AND column_name='profile_picture'""").fetchone()
             if not profile_column:
                 raise RuntimeError("Apply migration 006_areej_profile_pictures.sql before deploying this version.")
+            message_actions = conn.execute("""SELECT COUNT(*) AS n FROM information_schema.columns
+                WHERE table_schema='areej_app' AND table_name='messages'
+                AND column_name IN ('edited_at','hidden_for_sender','hidden_for_recipient','deleted_for_everyone','forwarded_from_id')""").fetchone()
+            history_table = conn.execute("SELECT to_regclass('areej_app.message_history') AS table_name").fetchone()
+            if message_actions["n"] != 5 or not history_table or history_table["table_name"] is None:
+                raise RuntimeError("Apply migration 007_areej_message_actions.sql before deploying this version.")
         finally:
             conn.close()
         return
@@ -584,8 +590,8 @@ def message_conversation(contact_id):
     messages = conn.execute("""SELECT m.*, u.display_name AS sender_name FROM messages m
         JOIN users u ON u.id=m.sender_id
         WHERE ((m.sender_id=? AND m.recipient_id=?) OR (m.sender_id=? AND m.recipient_id=?))
-          AND ((m.sender_id=? AND m.hidden_for_sender=0) OR (m.recipient_id=? AND m.hidden_for_recipient=0))
-          AND m.deleted_for_everyone=0
+          AND ((m.sender_id=? AND m.hidden_for_sender=FALSE) OR (m.recipient_id=? AND m.hidden_for_recipient=FALSE))
+          AND m.deleted_for_everyone=FALSE
         ORDER BY m.id ASC""", (current_id, contact_id, contact_id, current_id, current_id, current_id)).fetchall()
     return render_template("conversation.html", contact=contact, conversation_messages=messages,
         recipients=portal_contacts(conn, session["role"]))
@@ -793,7 +799,7 @@ def message_action(message_id):
             flash("Message updated.", "success")
     elif action == "delete_me":
         column = "hidden_for_sender" if message["sender_id"] == current_id else "hidden_for_recipient"
-        conn.execute(f"UPDATE messages SET {column}=1 WHERE id=?", (message_id,))
+        conn.execute(f"UPDATE messages SET {column}=TRUE WHERE id=?", (message_id,))
         conn.commit()
         flash("Message removed from your chat.", "success")
     elif action == "delete_everyone":
