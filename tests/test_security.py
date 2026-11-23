@@ -298,6 +298,47 @@ def test_admin_can_review_submitted_academic_report(client):
         assert report["review_note"] == "Reviewed and approved."
 
 
+def test_student_learning_centre_shows_only_enrolled_class_resources(client):
+    with app_module.app.app_context():
+        conn = app_module.db()
+        student_id = conn.execute("SELECT id FROM users WHERE username=?", ("student-test",)).fetchone()["id"]
+        course_id = conn.execute("INSERT INTO courses(name,description) VALUES(?,?)", ("Arabic", "Arabic course")).lastrowid
+        own_class = conn.execute("INSERT INTO classes(course_id,name) VALUES(?,?)", (course_id,"Enrolled Arabic")).lastrowid
+        private_class = conn.execute("INSERT INTO classes(name) VALUES(?)", ("Not Enrolled",)).lastrowid
+        conn.execute("INSERT INTO enrollments_academic(student_id,class_id) VALUES(?,?)", (student_id,own_class))
+        conn.execute("INSERT INTO learning_materials(class_id,title,url) VALUES(?,?,?)", (own_class,"Arabic Notes","https://example.com/notes"))
+        conn.execute("INSERT INTO learning_materials(class_id,title,url) VALUES(?,?,?)", (private_class,"Private Notes","https://example.com/private"))
+        conn.commit()
+    with client.session_transaction() as session:
+        session.update(user_id=2,username="student-test",role="student",csrf_token="student-learning")
+    response=client.get("/student/learning")
+    assert response.status_code==200
+    assert b"Enrolled Arabic" in response.data
+    assert b"Arabic Notes" in response.data
+    assert b"Not Enrolled" not in response.data
+    assert b"Private Notes" not in response.data
+
+
+def test_parent_can_only_view_linked_child_progress(client):
+    with app_module.app.app_context():
+        conn=app_module.db()
+        parent_id=conn.execute("INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+            ("parent-test",generate_password_hash("parent password 123"),"parent","Test Parent")).lastrowid
+        child_id=conn.execute("INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+            ("child-test",generate_password_hash("child password 123"),"student","Linked Child")).lastrowid
+        other_id=conn.execute("INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+            ("other-child",generate_password_hash("child password 123"),"student","Other Child")).lastrowid
+        conn.execute("INSERT INTO parent_links(parent_id,student_id) VALUES(?,?)",(parent_id,child_id))
+        conn.commit()
+    with client.session_transaction() as session:
+        session.update(user_id=parent_id,username="parent-test",role="parent",csrf_token="parent-progress")
+    allowed=client.get(f"/parent/children/{child_id}/progress")
+    denied=client.get(f"/parent/children/{other_id}/progress")
+    assert allowed.status_code==200
+    assert b"Linked Child" in allowed.data
+    assert denied.status_code==404
+
+
 def test_health_endpoint_checks_database(client):
     response = client.get("/health")
     assert response.status_code == 200
