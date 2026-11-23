@@ -972,7 +972,6 @@ def message_attachment(filename):
 def student_dashboard():
     conn = db()
     courses = conn.execute("SELECT DISTINCT c.* FROM courses c JOIN classes cl ON cl.course_id=c.id JOIN enrollments_academic ea ON ea.class_id=cl.id WHERE ea.student_id=? ORDER BY c.name", (session["user_id"],)).fetchall()
-    if not courses: courses = conn.execute("SELECT * FROM courses ORDER BY name LIMIT 20").fetchall()
     classes = conn.execute("SELECT cl.* FROM classes cl JOIN enrollments_academic ea ON ea.class_id=cl.id WHERE ea.student_id=? ORDER BY cl.schedule", (session["user_id"],)).fetchall()
     assignments = conn.execute("SELECT a.*, cl.name AS class_name FROM assignments a JOIN classes cl ON cl.id=a.class_id JOIN enrollments_academic ea ON ea.class_id=cl.id WHERE ea.student_id=? ORDER BY a.due_date", (session["user_id"],)).fetchall()
     results = conn.execute("SELECT * FROM results WHERE student_id=? ORDER BY created_at DESC", (session["user_id"],)).fetchall()
@@ -1525,6 +1524,10 @@ def too_many_requests(error):
 # Register the academic reports and assignment-review workspace.
 from academic_workspace import register_academic_routes
 register_academic_routes(app, db, roles)
+
+# Register enrolled-student learning and linked-parent progress pages.
+from learning_centre import register_learning_routes
+register_learning_routes(app, db, roles)
 
 # Initialize the selected database when imported by a WSGI server such as Gunicorn.
 # SQLite setup is idempotent; PostgreSQL mode only validates the pre-provisioned
