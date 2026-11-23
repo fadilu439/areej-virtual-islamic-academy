@@ -1,0 +1,41 @@
+{% extends "base.html" %}
+{% block title %}Academic Reports | Areej Academy{% endblock %}
+{% block heading %}Academic Reports & Review{% endblock %}
+{% block content %}
+<section class="hero"><small>ACADEMIC QUALITY</small><h2>{% if mode == 'staff' %}Teaching Reports & Assignment Marking{% else %}Academic Report Review{% endif %}</h2>
+<p>{% if mode == 'staff' %}Record daily teaching, weekly progress and individual student development. Review and mark submitted work.{% else %}Review submitted reports and record clear approval decisions for the academy.{% endif %}</p></section>
+{% if mode == 'staff' %}
+<div class="columns">
+<section class="panel"><small>NEW REPORT</small><h2>Create an Academic Report</h2>
+<form class="course-form" method="post" action="{{ url_for('create_academic_report') }}">
+<input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<label>Report type</label><select name="report_type" required><option value="daily">Daily teaching report</option><option value="weekly">Weekly teaching report</option><option value="student_progress">Individual student progress</option></select>
+<label>Class</label><select name="class_id" required>{% for c in classes %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select>
+<label>Student (required for individual progress)</label><select name="student_id"><option value="">Not applicable</option>{% for s in students %}<option value="{{ s.id }}">{{ s.display_name }}</option>{% endfor %}</select>
+<label>Report date</label><input type="date" name="report_date" required>
+<div class="columns"><div><label>Week start (weekly only)</label><input type="date" name="week_start"></div><div><label>Week end (weekly only)</label><input type="date" name="week_end"></div></div>
+<label>Lesson topic / focus</label><input name="topic" maxlength="200" required>
+<div class="columns"><div><label>Lesson duration (minutes)</label><input type="number" name="duration_minutes" min="0" max="240" value="40"></div><div><label>Attendance count</label><input type="number" name="attendance_count" min="0" value="0"></div></div>
+<div class="columns"><div><label>Assessment score (optional)</label><input type="number" step="0.01" min="0" name="score"></div><div><label>Maximum score (optional)</label><input type="number" step="0.01" min="0.01" name="maximum_score" value="100"></div></div>
+<label>Progress / lesson summary</label><textarea name="progress_notes" rows="3" maxlength="4000"></textarea>
+<label>Challenges / learners needing support</label><textarea name="challenges" rows="2" maxlength="2000"></textarea>
+<label>Next steps / next week plan</label><textarea name="next_steps" rows="2" maxlength="2000"></textarea>
+<label>Teacher comments</label><textarea name="teacher_comments" rows="2" maxlength="3000"></textarea>
+<label>Recommendations</label><textarea name="recommendations" rows="2" maxlength="2000"></textarea>
+<div class="columns"><button class="btn" name="submit_action" value="draft">Save Draft</button><button class="btn primary" name="submit_action" value="submit">Submit for Review</button></div>
+</form></section>
+<section class="panel"><small>MY REPORTS</small><h2>Submission History</h2>
+{% if reports %}<div class="mini-list">{% for r in reports %}<div><strong>{{ r.report_type|replace('_',' ')|title }} · {{ r.class_name }}</strong><span>{{ r.report_date }} · {{ r.status|title }}{% if r.student_name %} · {{ r.student_name }}{% endif %}</span>{% if r.review_note %}<p>{{ r.review_note }}</p>{% endif %}</div>{% endfor %}</div>{% else %}<p class="muted">No reports submitted yet.</p>{% endif %}
+</section></div>
+<section class="panel"><small>ASSIGNMENT REVIEW</small><h2>Student Submissions</h2>
+{% if submissions %}<div class="table-wrap"><table><thead><tr><th>Student</th><th>Assignment</th><th>Submitted</th><th>Work</th><th>Mark & Feedback</th></tr></thead><tbody>
+{% for s in submissions %}<tr><td>{{ s.student_name }}</td><td>{{ s.assignment_title }}<br><small>{{ s.class_name }}</small></td><td>{{ s.submitted_at }}</td><td>{{ s.content or s.file_name or 'Attachment submitted' }}</td><td><form method="post" action="{{ url_for('grade_assignment_submission',submission_id=s.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><input type="number" name="score" min="0" step="0.01" value="{{ s.score if s.score is not none else '' }}" required placeholder="Score"><input type="number" name="maximum_score" min="0.01" step="0.01" value="100" required><textarea name="feedback" rows="2" placeholder="Feedback">{{ s.feedback or '' }}</textarea><button class="btn primary">Save Mark</button></form><small>{{ s.status|title }}</small></td></tr>{% endfor %}
+</tbody></table></div>{% else %}<p class="muted">No student submissions are waiting for review.</p>{% endif %}
+</section>
+{% else %}
+<section class="panel"><div class="panel-head"><div><small>REVIEW QUEUE</small><h2>Submitted Academic Reports</h2></div><form method="get"><select name="status"><option value="">All statuses</option>{% for x in ['submitted','approved','rejected','draft'] %}<option value="{{ x }}" {% if status==x %}selected{% endif %}>{{ x|title }}</option>{% endfor %}</select><button class="btn">Filter</button></form></div>
+{% if reports %}<div class="mini-list">{% for r in reports %}<article class="panel"><strong>{{ r.report_type|replace('_',' ')|title }} · {{ r.class_name }}</strong><span>{{ r.report_date }} · {{ r.staff_name }}{% if r.student_name %} · {{ r.student_name }}{% endif %}</span><p>{{ r.topic }}</p><p>{{ r.progress_notes }}</p>{% if r.challenges %}<p><b>Challenges:</b> {{ r.challenges }}</p>{% endif %}{% if r.next_steps %}<p><b>Next steps:</b> {{ r.next_steps }}</p>{% endif %}{% if r.score is not none %}<p><b>Assessment:</b> {{ r.score }}/{{ r.maximum_score }}</p>{% endif %}<p><b>Status:</b> {{ r.status|title }}</p>
+{% if r.status in ['submitted','rejected'] %}<form method="post" action="{{ url_for('review_academic_report',report_id=r.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}"><textarea name="review_note" rows="2" maxlength="2000" placeholder="Review notes / reason"></textarea><button class="btn primary" name="decision" value="approved">Approve</button><button class="btn" name="decision" value="rejected">Request Changes</button></form>{% endif %}</article>{% endfor %}</div>{% else %}<p class="muted">No reports match this filter.</p>{% endif %}
+</section>
+{% endif %}
+{% endblock %}
