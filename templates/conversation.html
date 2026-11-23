@@ -15,7 +15,7 @@
   <section class="chat-main-panel">
     <div class="chat-main-head">
       {% if contact.profile_picture %}<img class="chat-avatar avatar-photo" src="{{ url_for('profile_avatar', user_id=contact.id) }}" alt="{{ contact.display_name }}">{% else %}<span class="chat-avatar">{{ contact.display_name[0]|upper }}</span>{% endif %}
-      <div><h2>{{ contact.display_name }}</h2><p>{{ contact.role|title }} · Private conversation</p></div>
+      <div><h2><a href="{{ url_for('public_profile', user_id=contact.id) }}">{{ contact.display_name }}</a></h2><p>{{ contact.role|title }} · <a href="{{ url_for('public_profile', user_id=contact.id) }}">View profile</a></p></div>
       <a class="chat-back" style="margin-left:auto" href="{{ url_for('messages_inbox') }}">All chats</a>
     </div>
     <div class="chat-history" id="chatHistory"><span class="chat-day-label">Conversation history</span>
