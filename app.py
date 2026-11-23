@@ -21,8 +21,10 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 DB_PATH = Path(os.environ.get("AREEJ_DB_PATH", DATA_DIR / "areej_academy.db"))
 UPLOAD_FOLDER = DATA_DIR / "uploads" / "payment-proofs"
 MESSAGE_FOLDER = DATA_DIR / "uploads" / "messages"
+PROFILE_FOLDER = DATA_DIR / "uploads" / "profile-pictures"
 UPLOAD_FOLDER.mkdir(parents=True, exist_ok=True)
 MESSAGE_FOLDER.mkdir(parents=True, exist_ok=True)
+PROFILE_FOLDER.mkdir(parents=True, exist_ok=True)
 app = Flask(__name__)
 
 @app.route("/service-worker.js")
@@ -93,7 +95,7 @@ def save_validated_upload(upload, folder, allowed_extensions):
     if extension not in allowed_extensions or not valid_upload_signature(upload, extension):
         return None
     stored_name = f"{secrets.token_hex(12)}_{safe_name}"
-    category = "payment-proofs" if folder == UPLOAD_FOLDER else "messages"
+    category = "payment-proofs" if folder == UPLOAD_FOLDER else ("profile-pictures" if folder == PROFILE_FOLDER else "messages")
     return save_upload(upload, category, folder, stored_name)
 
 def db():
@@ -215,6 +217,8 @@ def init_db():
     user_columns = {row[1] for row in conn.execute("PRAGMA table_info(users)")}
     if "is_active" not in user_columns:
         conn.execute("ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
+    if "profile_picture" not in user_columns:
+        conn.execute("ALTER TABLE users ADD COLUMN profile_picture TEXT")
     message_columns = {row[1] for row in conn.execute("PRAGMA table_info(messages)")}
     for column, definition in {
         "is_read": "INTEGER DEFAULT 0", "read_at": "TEXT", "delivered_at": "TEXT",
@@ -286,6 +290,7 @@ def context_user():
             (session["user_id"],),
         ).fetchone()["n"]
         preferences = user_preferences_for(conn, session["user_id"])
+        profile = conn.execute("SELECT profile_picture FROM users WHERE id=?", (session["user_id"],)).fetchone()
         if not preferences["message_notifications"]:
             unread_count = 0
     return {
@@ -296,7 +301,8 @@ def context_user():
         "current_user": {
             "username": session.get("username", ""),
             "display_name": session.get("display_name", "User"),
-            "role": session.get("role", "")
+            "role": session.get("role", ""),
+            "profile_picture": profile["profile_picture"] if profile else None
         }
     }
 
@@ -581,6 +587,7 @@ def settings():
         new_password = request.form.get("new_password", "")
         confirm_password = request.form.get("confirm_password", "")
         account = conn.execute("SELECT password_hash FROM users WHERE id=?", (user_id,)).fetchone()
+        profile_upload = request.files.get("profile_picture")
         if not display_name:
             flash("Your display name cannot be empty.", "error")
             return redirect(url_for("settings"))
@@ -598,6 +605,12 @@ def settings():
                          (display_name, generate_password_hash(new_password), user_id))
         else:
             conn.execute("UPDATE users SET display_name=? WHERE id=?", (display_name, user_id))
+        if profile_upload and profile_upload.filename:
+            profile_picture_path = save_validated_upload(profile_upload, PROFILE_FOLDER, {"jpg", "jpeg", "png", "webp"})
+            if not profile_picture_path:
+                flash("Upload a valid JPG, PNG or WebP image no larger than 5 MB.", "error")
+                return redirect(url_for("settings"))
+            conn.execute("UPDATE users SET profile_picture=? WHERE id=?", (profile_picture_path, user_id))
         conn.execute("""INSERT INTO user_preferences(user_id,theme,message_notifications,read_receipts)
             VALUES(?,?,?,?) ON CONFLICT(user_id) DO UPDATE SET theme=excluded.theme,
             message_notifications=excluded.message_notifications, read_receipts=excluded.read_receipts,
@@ -607,6 +620,68 @@ def settings():
         flash("Your settings have been saved.", "success")
         return redirect(url_for("settings"))
     return render_template("settings.html", preferences=user_preferences_for(conn, user_id))
+
+
+@app.route("/profile/avatar/<int:user_id>")
+@roles("admin", "staff", "student", "parent")
+def profile_avatar(user_id):
+    row = db().execute("SELECT profile_picture FROM users WHERE id=? AND is_active=TRUE", (user_id,)).fetchone()
+    if not row or not row["profile_picture"]:
+        abort(404)
+    stored_path = row["profile_picture"]
+    try:
+        content = read_upload(stored_path, PROFILE_FOLDER)
+    except (FileNotFoundError, ValueError):
+        abort(404)
+    extension = Path(stored_path).suffix.lower()
+    mimetype = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png", ".webp": "image/webp"}.get(extension)
+    if not mimetype:
+        abort(404)
+    response = send_file(io.BytesIO(content), mimetype=mimetype, max_age=300)
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["Cache-Control"] = "private, max-age=300"
+    return response
+
+
+@app.route("/help")
+@roles("admin", "staff", "student", "parent")
+def help_center():
+    role = session["role"]
+    guides = {
+        "admin": [
+            ("Manage user accounts", "Open the Admin Dashboard to create accounts, review account status and manage authorised account details. Protect administrator credentials and never share passwords."),
+            ("Manage courses and classes", "Review courses, assign teachers and check class schedules. Confirm linked records before deleting academic items."),
+            ("Review admissions and payments", "Check each admission and payment proof carefully. Only the Administrator/Director confirms payments and updates their status."),
+            ("Reports and student progress", "Review attendance, examination results and progress. Check student identity and grade before publishing a result."),
+            ("Account security", "Use Settings to update your profile, preferences and password. Sign out on shared devices.")
+        ],
+        "staff": [
+            ("Manage your classes", "View assigned classes and enrolled students. Do not access or share unrelated student records."),
+            ("Record attendance", "Choose the correct class and lesson date, then record attendance accurately. Contact an administrator if a correction is required."),
+            ("Assignments and examinations", "Publish work for assigned classes, review submissions and enter marks carefully. The minimum passing mark is 70 percent."),
+            ("Messages and parent communication", "Use Message Centre to contact authorised users. Keep student information confidential."),
+            ("Settings and account security", "Use Settings to update your profile and password. Never share login details.")
+        ],
+        "student": [
+            ("Your Student Dashboard", "Access your courses, classes, assignments, attendance and results. Contact your teacher if expected information is missing."),
+            ("Joining lessons", "Check your approved timetable and join at the time shown in your local time zone. Each lesson lasts 40 minutes."),
+            ("Assignments and examinations", "Read instructions and due dates carefully. The minimum passing mark is 70 percent. Ask your teacher about an approved retake."),
+            ("Messages", "Use Message Centre to contact your teacher or authorised academy staff. Never share your password."),
+            ("Profile and password", "Open Settings to update your display name, profile picture and password. You can only change your own account details.")
+        ],
+        "parent": [
+            ("Your Parent Dashboard", "Review linked children, learning progress, attendance and results."),
+            ("Timetable and missed lessons", "Check each child's timetable in their local time zone. Contact the teacher or administrator to arrange a missed lesson."),
+            ("Payments", "Contact the Administrator/Director for payment confirmation. Eligible families enrolling five children pay for four."),
+            ("Contact teachers", "Use Message Centre to contact authorised teachers or administrators about your linked child."),
+            ("Profile and account security", "Open Settings to update your display name, profile picture and password.")
+        ]
+    }[role]
+    query = request.args.get("q", "").strip().casefold()
+    articles = [{"title": title, "body": body} for title, body in guides]
+    if query:
+        articles = [item for item in articles if query in item["title"].casefold() or query in item["body"].casefold()]
+    return render_template("help_center.html", articles=articles, search_query=request.args.get("q", ""))
 
 
 @app.route("/messages/send", methods=["POST"])
