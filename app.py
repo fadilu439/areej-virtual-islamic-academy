@@ -245,6 +245,15 @@ def init_db():
         conn.execute("ALTER TABLE users ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1")
     if "profile_picture" not in user_columns:
         conn.execute("ALTER TABLE users ADD COLUMN profile_picture TEXT")
+    for column, definition in {
+        "age": "INTEGER", "date_of_birth": "TEXT", "gender": "TEXT",
+        "country": "TEXT DEFAULT ''", "state": "TEXT DEFAULT ''",
+        "phone": "TEXT DEFAULT ''", "email": "TEXT DEFAULT ''",
+        "bio": "TEXT DEFAULT ''", "profile_visibility": "TEXT NOT NULL DEFAULT 'contacts'",
+        "show_location": "INTEGER NOT NULL DEFAULT 0"
+    }.items():
+        if column not in user_columns:
+            conn.execute("ALTER TABLE users ADD COLUMN " + column + " " + definition)
     message_columns = {row[1] for row in conn.execute("PRAGMA table_info(messages)")}
     for column, definition in {
         "is_read": "INTEGER DEFAULT 0", "read_at": "TEXT", "delivered_at": "TEXT",
@@ -564,6 +573,7 @@ def open_messages():
 def messages_inbox():
     conn = db()
     user_id = session["user_id"]
+    query = request.args.get("q", "").strip()[:100]
     conn.execute("UPDATE messages SET delivered_at=CURRENT_TIMESTAMP WHERE recipient_id=? AND delivered_at IS NULL", (user_id,))
     conn.commit()
     contacts = []
@@ -578,12 +588,19 @@ def messages_inbox():
             WHERE sender_id=? AND recipient_id=? AND is_read=0
               AND hidden_for_recipient=FALSE AND deleted_for_everyone=FALSE""",
             (contact_id, user_id)).fetchone()["n"]
-        contacts.append({"id": contact_id, "display_name": person["display_name"], "role": person["role"],
+        item = {"id": contact_id, "display_name": person["display_name"], "role": person["role"], "profile_picture": person["profile_picture"],
             "last_message": ((latest["body"] or "").strip() or (latest["attachment_name"] or "Attachment")) if latest else "Start a conversation",
             "last_created_at": latest["created_at"] if latest else "", "unread_count": unread,
-            "has_history": bool(latest)})
+            "has_history": bool(latest)}
+        if query:
+            needle = "%" + query.casefold() + "%"
+            name_match = query.casefold() in (item["display_name"] + " " + item["role"]).casefold()
+            message_match = conn.execute("SELECT 1 FROM messages WHERE ((sender_id=? AND recipient_id=? AND hidden_for_sender=FALSE) OR (sender_id=? AND recipient_id=? AND hidden_for_recipient=FALSE)) AND deleted_for_everyone=FALSE AND LOWER(COALESCE(body,'')) LIKE ? LIMIT 1", (user_id,contact_id,contact_id,user_id,needle)).fetchone()
+            if not name_match and not message_match:
+                continue
+        contacts.append(item)
     contacts.sort(key=lambda item: (bool(item["has_history"]), item["last_created_at"] or "", item["display_name"].casefold()), reverse=True)
-    return render_template("messages.html", contacts=contacts)
+    return render_template("messages.html", contacts=contacts, query=query)
 
 
 @app.route("/messages/<int:contact_id>")
@@ -630,6 +647,13 @@ def settings():
         notifications = request.form.get("message_notifications") == "on"
         read_receipts = request.form.get("read_receipts") == "on"
         display_name = request.form.get("display_name", "").strip()
+        bio = request.form.get("bio", "").strip()[:240]
+        country = request.form.get("country", "").strip()[:100]
+        state = request.form.get("state", "").strip()[:100]
+        profile_visibility = request.form.get("profile_visibility", "contacts")
+        show_location = request.form.get("show_location") == "on"
+        if profile_visibility not in {"contacts", "private"}:
+            abort(400)
         current_password = request.form.get("current_password", "")
         new_password = request.form.get("new_password", "")
         confirm_password = request.form.get("confirm_password", "")
@@ -648,10 +672,11 @@ def settings():
             if new_password != confirm_password:
                 flash("The new password and confirmation do not match.", "error")
                 return redirect(url_for("settings"))
-            conn.execute("UPDATE users SET display_name=?, password_hash=? WHERE id=?",
-                         (display_name, generate_password_hash(new_password), user_id))
+            conn.execute("UPDATE users SET display_name=?, password_hash=?, bio=?, country=?, state=?, profile_visibility=?, show_location=? WHERE id=?",
+                         (display_name, generate_password_hash(new_password), bio, country, state, profile_visibility, show_location, user_id))
         else:
-            conn.execute("UPDATE users SET display_name=? WHERE id=?", (display_name, user_id))
+            conn.execute("UPDATE users SET display_name=?, bio=?, country=?, state=?, profile_visibility=?, show_location=? WHERE id=?",
+                         (display_name, bio, country, state, profile_visibility, show_location, user_id))
         if profile_upload and profile_upload.filename:
             profile_picture_path = save_validated_upload(profile_upload, PROFILE_FOLDER, {"jpg", "jpeg", "png", "webp"})
             if not profile_picture_path:
@@ -666,7 +691,24 @@ def settings():
         session["display_name"] = display_name
         flash("Your settings have been saved.", "success")
         return redirect(url_for("settings"))
-    return render_template("settings.html", preferences=user_preferences_for(conn, user_id))
+    profile_settings = conn.execute("SELECT bio,country,state,profile_visibility,show_location FROM users WHERE id=?", (user_id,)).fetchone()
+    return render_template("settings.html", preferences=user_preferences_for(conn, user_id), profile_settings=profile_settings)
+
+
+@app.route("/profile/<int:user_id>")
+@roles("admin", "staff", "student", "parent")
+def public_profile(user_id):
+    conn = db()
+    current_id = session["user_id"]
+    person = conn.execute("SELECT id,display_name,role,profile_picture,bio,country,state,profile_visibility,show_location,is_active FROM users WHERE id=?", (user_id,)).fetchone()
+    if not person or not person["is_active"]:
+        abort(404)
+    if user_id != current_id:
+        permitted = {int(p["id"]) for p in portal_contacts(conn, session["role"])}
+        history = conn.execute("SELECT 1 FROM messages WHERE (sender_id=? AND recipient_id=?) OR (sender_id=? AND recipient_id=?) LIMIT 1", (current_id,user_id,user_id,current_id)).fetchone()
+        if (user_id not in permitted and not history) or person["profile_visibility"] == "private":
+            abort(403)
+    return render_template("profile.html", person=person, can_view_private=(user_id == current_id))
 
 
 @app.route("/profile/avatar/<int:user_id>")
