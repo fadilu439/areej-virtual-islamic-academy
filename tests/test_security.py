@@ -559,3 +559,31 @@ def test_non_admin_cannot_open_admin_directory(client):
     with client.session_transaction() as session:
         session.update(user_id=2, username="student-test", role="student", csrf_token="student-csrf")
     assert client.get("/admin/directory/students").status_code == 403
+
+
+
+def test_user_can_forward_visible_message_only_to_authorized_contact(client):
+    with app_module.app.app_context():
+        conn = app_module.db()
+        conn.execute(
+            "INSERT INTO users(username,password_hash,role,display_name) VALUES(?,?,?,?)",
+            ("second-student", generate_password_hash("second student password"), "student", "Second Student"),
+        )
+        second_student_id = conn.execute("SELECT id FROM users WHERE username='second-student'").fetchone()["id"]
+        conn.execute("INSERT INTO messages(sender_id,recipient_id,body) VALUES(2,1,'Please share this lesson note')")
+        conn.commit()
+        source_id = conn.execute("SELECT id FROM messages ORDER BY id DESC LIMIT 1").fetchone()["id"]
+    with client.session_transaction() as session:
+        session.update(user_id=1, username="admin-test", role="admin", csrf_token="test-csrf")
+    response = client.post(f"/messages/{source_id}/action", data={
+        "csrf_token": "test-csrf", "action": "forward", "recipient_id": str(second_student_id)
+    })
+    assert response.status_code == 302
+    with app_module.app.app_context():
+        forwarded = app_module.db().execute(
+            "SELECT sender_id, recipient_id, body, forwarded_from_id FROM messages WHERE recipient_id=? ORDER BY id DESC LIMIT 1",
+            (second_student_id,),
+        ).fetchone()
+        assert forwarded["sender_id"] == 1
+        assert forwarded["body"] == "Please share this lesson note"
+        assert forwarded["forwarded_from_id"] == source_id
