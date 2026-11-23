@@ -25,8 +25,13 @@ def register_academic_routes(app, db, roles):
         students = conn.execute("""SELECT DISTINCT u.id,u.display_name FROM users u
             JOIN enrollments_academic ea ON ea.student_id=u.id JOIN classes c ON c.id=ea.class_id
             WHERE c.teacher_id=? AND u.role='student' ORDER BY u.display_name""", (session["user_id"],)).fetchall()
+        plans = conn.execute("""SELECT * FROM lesson_plans WHERE staff_id=?
+            ORDER BY lesson_date DESC,created_at DESC LIMIT 100""",(session["user_id"],)).fetchall()
+        materials = conn.execute("""SELECT m.*,c.name AS class_name FROM learning_materials m
+            JOIN classes c ON c.id=m.class_id WHERE c.teacher_id=? ORDER BY m.created_at DESC LIMIT 100""",
+            (session["user_id"],)).fetchall()
         return render_template("reports.html", mode="staff", classes=classes, reports=reports,
-                               submissions=submissions, students=students)
+                               submissions=submissions, students=students, plans=plans, materials=materials)
 
     @app.route("/admin/reports", methods=["GET"])
     @roles("admin")
@@ -46,6 +51,47 @@ def register_academic_routes(app, db, roles):
         query += " ORDER BY CASE WHEN r.status='submitted' THEN 0 ELSE 1 END, r.created_at DESC LIMIT 250"
         reports = conn.execute(query, params).fetchall()
         return render_template("reports.html", mode="admin", reports=reports, status=status)
+
+    @app.route("/staff/lesson-plans/create", methods=["POST"])
+    @roles("staff")
+    def create_lesson_plan():
+        conn=db()
+        class_id=request.form.get("class_id","")
+        owned=conn.execute("SELECT id FROM classes WHERE id=? AND teacher_id=?",(class_id,session["user_id"])).fetchone()
+        topic=request.form.get("topic","").strip()[:200]
+        lesson_date=request.form.get("lesson_date","").strip()
+        try:
+            datetime.date.fromisoformat(lesson_date)
+        except ValueError:
+            abort(400)
+        if not owned:
+            abort(403)
+        if not topic:
+            abort(400)
+        conn.execute("""INSERT INTO lesson_plans(class_id,staff_id,lesson_date,topic,objectives,materials,planned_activity)
+            VALUES(?,?,?,?,?,?,?)""",(class_id,session["user_id"],lesson_date,topic,
+            request.form.get("objectives","").strip()[:3000],request.form.get("materials","").strip()[:2000],
+            request.form.get("planned_activity","").strip()[:3000]))
+        conn.commit()
+        flash("Lesson plan saved.", "success")
+        return redirect(url_for("staff_reports"))
+
+    @app.route("/staff/materials/create", methods=["POST"])
+    @roles("staff")
+    def create_learning_material():
+        conn=db()
+        class_id=request.form.get("class_id","")
+        owned=conn.execute("SELECT id FROM classes WHERE id=? AND teacher_id=?",(class_id,session["user_id"])).fetchone()
+        title=request.form.get("title","").strip()[:160]
+        resource_url=request.form.get("url","").strip()
+        if not owned:
+            abort(403)
+        if not title or not resource_url.startswith(("https://","http://")) or len(resource_url)>1000:
+            abort(400)
+        conn.execute("INSERT INTO learning_materials(class_id,title,url) VALUES(?,?,?)",(class_id,title,resource_url))
+        conn.commit()
+        flash("Learning resource shared with enrolled students.", "success")
+        return redirect(url_for("staff_reports"))
 
     @app.route("/staff/reports/create", methods=["POST"])
     @roles("staff")
