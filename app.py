@@ -164,7 +164,7 @@ def init_db():
             profile_columns = conn.execute("""SELECT COUNT(*) AS n FROM information_schema.columns
                 WHERE table_schema='areej_app' AND table_name='users'
                 AND column_name IN ('age','date_of_birth','gender','country','state','phone','email','bio','profile_visibility','show_location')""").fetchone()
-            if profile_columns["n"] != 10:
+            if profile_columns["n"] != 12:
                 raise RuntimeError("Apply migration 008_areej_student_profiles.sql before deploying this version.")
         finally:
             conn.close()
@@ -253,7 +253,7 @@ def init_db():
     for column, definition in {
         "age": "INTEGER", "date_of_birth": "TEXT", "gender": "TEXT",
         "country": "TEXT DEFAULT ''", "state": "TEXT DEFAULT ''",
-        "phone": "TEXT DEFAULT ''", "email": "TEXT DEFAULT ''",
+        "phone": "TEXT DEFAULT ''", "email": "TEXT DEFAULT ''", "guardian_name": "TEXT DEFAULT ''", "programme": "TEXT DEFAULT ''",
         "bio": "TEXT DEFAULT ''", "profile_visibility": "TEXT NOT NULL DEFAULT 'contacts'",
         "show_location": "INTEGER NOT NULL DEFAULT 0"
     }.items():
@@ -1056,7 +1056,7 @@ def admin_dashboard():
             username = request.form.get(username_field, "").strip().lower()
             password = request.form.get(password_field, "")
             age_value = None
-            dob = gender = country = state = phone = email = ""
+            dob = gender = country = state = phone = email = guardian_name = programme = ""
             if role == "student":
                 try:
                     age_value = int(request.form.get("student_age", "").strip())
@@ -1068,6 +1068,8 @@ def admin_dashboard():
                 state = request.form.get("state", "").strip()
                 phone = request.form.get("student_phone", "").strip()
                 email = request.form.get("student_email", "").strip()
+                guardian_name = request.form.get("guardian_name", "").strip()
+                programme = request.form.get("programme", "").strip()
                 if not display_name or age_value < 3 or gender not in {"Male", "Female"} or not country or not state:
                     flash("Student registration requires the full name, age (minimum 3), gender, country and state.", "error")
                     return redirect(url_for("admin_dashboard", _anchor=anchor))
@@ -1097,9 +1099,9 @@ def admin_dashboard():
             elif conn.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone():
                 flash("That username is already in use. Please choose another one.", "error")
                 return redirect(url_for("admin_dashboard", _anchor=anchor))
-            conn.execute("""INSERT INTO users(username,password_hash,role,display_name,is_active,age,date_of_birth,gender,country,state,phone,email)
-                VALUES(?,?,?,?,TRUE,?,?,?,?,?,?,?)""",
-                (username, generate_password_hash(password), role, display_name, age_value, dob or None, gender or None, country, state, phone, email))
+            conn.execute("""INSERT INTO users(username,password_hash,role,display_name,is_active,age,date_of_birth,gender,country,state,phone,email,guardian_name,programme)
+                VALUES(?,?,?,?,TRUE,?,?,?,?,?,?,?,?,?)""",
+                (username, generate_password_hash(password), role, display_name, age_value, dob or None, gender or None, country, state, phone, email, guardian_name, programme))
             conn.commit()
             if generated:
                 flash("Account created. Hand these temporary credentials to the student securely — Username: " + username + " | Temporary password: " + password + ". This password will not be shown again.", "success")
