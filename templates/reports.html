@@ -6,6 +6,26 @@
 <p>{% if mode == 'staff' %}Record daily teaching, weekly progress and individual student development. Review and mark submitted work.{% else %}Review submitted reports and record clear approval decisions for the academy.{% endif %}</p></section>
 {% if mode == 'staff' %}
 <div class="columns">
+<section class="panel"><small>LESSON PREPARATION</small><h2>Lesson Plans</h2>
+<form class="course-form" method="post" action="{{ url_for('create_lesson_plan') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<label>Class</label><select name="class_id" required>{% for c in classes %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select>
+<label>Lesson date</label><input type="date" name="lesson_date" required>
+<label>Topic</label><input name="topic" maxlength="200" required>
+<label>Learning objectives</label><textarea name="objectives" rows="2"></textarea>
+<label>Materials needed</label><textarea name="materials" rows="2"></textarea>
+<label>Planned activities</label><textarea name="planned_activity" rows="3"></textarea>
+<button class="btn primary">Save Lesson Plan</button></form>
+{% if plans %}<div class="mini-list">{% for p in plans %}<div><strong>{{ p.topic }}</strong><span>{{ p.lesson_date }} · {{ p.objectives }}</span></div>{% endfor %}</div>{% else %}<p class="muted">No lesson plans saved yet.</p>{% endif %}
+</section>
+<section class="panel"><small>LEARNING RESOURCES</small><h2>Share Materials with Students</h2>
+<form class="course-form" method="post" action="{{ url_for('create_learning_material') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<label>Class</label><select name="class_id" required>{% for c in classes %}<option value="{{ c.id }}">{{ c.name }}</option>{% endfor %}</select>
+<label>Resource title</label><input name="title" maxlength="160" required>
+<label>Resource link (HTTPS recommended)</label><input type="url" name="url" maxlength="1000" required placeholder="https://...">
+<button class="btn primary">Share Resource</button></form>
+{% if materials %}<div class="mini-list">{% for m in materials %}<div><strong>{{ m.title }}</strong><span>{{ m.class_name }} · <a href="{{ m.url }}" target="_blank" rel="noopener">Open resource</a></span></div>{% endfor %}</div>{% else %}<p class="muted">No learning resources shared yet.</p>{% endif %}
+</section></div>
+<div class="columns">
 <section class="panel"><small>NEW REPORT</small><h2>Create an Academic Report</h2>
 <form class="course-form" method="post" action="{{ url_for('create_academic_report') }}">
 <input type="hidden" name="csrf_token" value="{{ csrf_token }}">
