@@ -74,6 +74,23 @@ def test_login_post_with_stale_csrf_refreshes_login_form(client):
     assert b"Your sign-in page expired" in refreshed.data
 
 
+
+def test_login_page_is_not_cacheable_and_varies_by_session_cookie(client):
+    response = client.get("/login")
+    assert response.status_code == 200
+    assert "no-store" in response.headers["Cache-Control"]
+    assert "private" in response.headers["Cache-Control"]
+    assert response.headers["Vary"] == "Cookie"
+
+
+def test_login_page_refreshes_when_restored_from_back_forward_cache(client):
+    response = client.get("/login")
+    assert response.status_code == 200
+    assert b'window.addEventListener("pageshow"' in response.data
+    assert b'if (event.persisted)' in response.data
+    assert b'window.location.reload()' in response.data
+
+
 def test_successful_login_regenerates_session_and_csrf(client):
     token = csrf_token(client)
     with client.session_transaction() as session:
