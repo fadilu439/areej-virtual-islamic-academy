@@ -161,6 +161,11 @@ def init_db():
             history_table = conn.execute("SELECT to_regclass('areej_app.message_history') AS table_name").fetchone()
             if message_actions["n"] != 5 or not history_table or history_table["table_name"] is None:
                 raise RuntimeError("Apply migration 007_areej_message_actions.sql before deploying this version.")
+            profile_columns = conn.execute("""SELECT COUNT(*) AS n FROM information_schema.columns
+                WHERE table_schema='areej_app' AND table_name='users'
+                AND column_name IN ('age','date_of_birth','gender','country','state','phone','email','bio','profile_visibility','show_location')""").fetchone()
+            if profile_columns["n"] != 10:
+                raise RuntimeError("Apply migration 008_areej_student_profiles.sql before deploying this version.")
         finally:
             conn.close()
         return
@@ -1050,17 +1055,56 @@ def admin_dashboard():
             display_name = request.form.get(name_field, "").strip()
             username = request.form.get(username_field, "").strip().lower()
             password = request.form.get(password_field, "")
-            if not display_name or not username or not password:
-                flash(f"Please enter the {label.lower()} name, username and password.", "error")
-            elif len(password) < 8:
-                flash("The password must contain at least 8 characters.", "error")
+            age_value = None
+            dob = gender = country = state = phone = email = ""
+            if role == "student":
+                try:
+                    age_value = int(request.form.get("student_age", "").strip())
+                except (TypeError, ValueError):
+                    age_value = 0
+                dob = request.form.get("date_of_birth", "").strip()
+                gender = request.form.get("gender", "").strip()
+                country = request.form.get("country", "").strip()
+                state = request.form.get("state", "").strip()
+                phone = request.form.get("student_phone", "").strip()
+                email = request.form.get("student_email", "").strip()
+                if not display_name or age_value < 3 or gender not in {"Male", "Female"} or not country or not state:
+                    flash("Student registration requires the full name, age (minimum 3), gender, country and state.", "error")
+                    return redirect(url_for("admin_dashboard", _anchor=anchor))
+                if dob:
+                    try:
+                        birth_date = datetime.date.fromisoformat(dob)
+                        today = datetime.date.today()
+                        calculated_age = today.year - birth_date.year - ((today.month, today.day) < (birth_date.month, birth_date.day))
+                        if birth_date > today or calculated_age < 3:
+                            raise ValueError
+                        age_value = calculated_age
+                    except ValueError:
+                        flash("Enter a valid date of birth. The student must be at least 3 years old.", "error")
+                        return redirect(url_for("admin_dashboard", _anchor=anchor))
+            generated = not username and not password
+            if generated:
+                base = "".join(ch for ch in display_name.lower() if ch.isalnum())[:18] or role
+                username = base
+                suffix = 1
+                while conn.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone():
+                    username = base + str(suffix)
+                    suffix += 1
+                password = secrets.token_urlsafe(10)
+            elif not display_name or not username or len(password) < 8:
+                flash("Enter a name and username with a password of at least 8 characters, or leave both credential fields blank for automatic generation.", "error")
+                return redirect(url_for("admin_dashboard", _anchor=anchor))
             elif conn.execute("SELECT id FROM users WHERE username=?", (username,)).fetchone():
                 flash("That username is already in use. Please choose another one.", "error")
+                return redirect(url_for("admin_dashboard", _anchor=anchor))
+            conn.execute("""INSERT INTO users(username,password_hash,role,display_name,is_active,age,date_of_birth,gender,country,state,phone,email)
+                VALUES(?,?,?,?,TRUE,?,?,?,?,?,?,?)""",
+                (username, generate_password_hash(password), role, display_name, age_value, dob or None, gender or None, country, state, phone, email))
+            conn.commit()
+            if generated:
+                flash("Account created. Hand these temporary credentials to the student securely — Username: " + username + " | Temporary password: " + password + ". This password will not be shown again.", "success")
             else:
-                conn.execute("INSERT INTO users(username,password_hash,role,display_name,is_active) VALUES(?,?,?,?,TRUE)",
-                             (username, generate_password_hash(password), role, display_name))
-                conn.commit()
-                flash(f"{label} account created for {display_name}. Username: {username}", "success")
+                flash(label + " account created for " + display_name + ". Username: " + username, "success")
             return redirect(url_for("admin_dashboard", _anchor=anchor))
 
         name = request.form.get("name","").strip()
