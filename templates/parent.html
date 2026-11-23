@@ -18,7 +18,7 @@
 <section class="panel" id="children">
   <small>STUDENT CONNECTIONS</small>
   <h2>My Children</h2>
-  {% if children %}<div class="mini-list">{% for child in children %}<div><strong>{{ child.display_name }}</strong><span>@{{ child.username }} · Student account</span></div>{% endfor %}</div>{% else %}<div class="empty compact"><p>No student account is linked yet. Contact the academy administrator.</p></div>{% endif %}
+  {% if children %}<div class="mini-list">{% for child in children %}<div><strong>{{ child.display_name }}</strong><span>@{{ child.username }} · <a href="{{ url_for('parent_child_progress', student_id=child.id) }}">View learning progress →</a></span></div>{% endfor %}</div>{% else %}<div class="empty compact"><p>No student account is linked yet. Contact the academy administrator.</p></div>{% endif %}
 </section>
 
 <div class="columns">
