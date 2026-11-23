@@ -790,6 +790,10 @@ def message_action(message_id):
     ).fetchone()
     if not message or message["deleted_for_everyone"]:
         abort(404)
+    if (message["sender_id"] == current_id and message["hidden_for_sender"]) or (
+        message["recipient_id"] == current_id and message["hidden_for_recipient"]
+    ):
+        abort(404)
     contact_id = message["recipient_id"] if message["sender_id"] == current_id else message["sender_id"]
     action = request.form.get("action", "").strip()
 
