@@ -129,21 +129,9 @@ def test_academic_reports_migration_adds_reports_and_submission_review_fields():
     with psycopg.connect(DATABASE_URL) as conn:
         conn.execute("DROP SCHEMA IF EXISTS areej_app CASCADE")
         conn.execute("CREATE SCHEMA areej_app")
-        conn.execute("""
-            DO $
-            BEGIN
-                IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'service_role') THEN
-                    CREATE ROLE service_role NOLOGIN;
-                END IF;
-                IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'anon') THEN
-                    CREATE ROLE anon NOLOGIN;
-                END IF;
-                IF NOT EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'authenticated') THEN
-                    CREATE ROLE authenticated NOLOGIN;
-                END IF;
-            END
-            $;
-        """)
+        for role in ("service_role", "anon", "authenticated"):
+            if not conn.execute("SELECT 1 FROM pg_roles WHERE rolname=%s", (role,)).fetchone():
+                conn.execute(f"CREATE ROLE {role} NOLOGIN")
         conn.execute("CREATE TABLE areej_app.users (id bigserial PRIMARY KEY)")
         conn.execute("CREATE TABLE areej_app.classes (id bigserial PRIMARY KEY)")
         conn.execute("CREATE TABLE areej_app.assignment_submissions (id bigserial PRIMARY KEY)")
