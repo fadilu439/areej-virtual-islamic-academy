@@ -20,7 +20,7 @@ def clean_database():
     with app_module.app.app_context():
         conn = app_module.db()
         for table in (
-            "assignment_submissions", "attendance", "results", "assignments",
+            "message_history", "assignment_submissions", "attendance", "results", "assignments",
             "learning_materials", "announcements", "parent_links", "user_preferences",
             "enrollments_academic", "classes", "messages", "enrollments",
             "courses", "login_attempts", "users",
@@ -450,3 +450,80 @@ def test_help_center_search_filters_role_specific_articles(client):
     assert response.status_code == 200
     assert b"Assignments and examinations" in response.data
     assert b"Joining lessons" not in response.data
+
+
+
+def test_sender_can_edit_own_message_and_history_is_preserved(client):
+    with app_module.app.app_context():
+        conn = app_module.db()
+        conn.execute("INSERT INTO messages(sender_id,recipient_id,body) VALUES(1,2,'Original text')")
+        conn.commit()
+        message_id = conn.execute("SELECT id FROM messages ORDER BY id DESC LIMIT 1").fetchone()["id"]
+    with client.session_transaction() as session:
+        session.update(user_id=1, username="admin-test", role="admin", csrf_token="test-csrf")
+    response = client.post(f"/messages/{message_id}/action", data={
+        "csrf_token": "test-csrf", "action": "edit", "body": "Corrected text"
+    })
+    assert response.status_code == 302
+    with app_module.app.app_context():
+        conn = app_module.db()
+        assert conn.execute("SELECT body FROM messages WHERE id=?", (message_id,)).fetchone()["body"] == "Corrected text"
+        history = conn.execute("SELECT action, previous_body FROM message_history WHERE message_id=?", (message_id,)).fetchone()
+        assert history["action"] == "edit"
+        assert history["previous_body"] == "Original text"
+
+
+def test_recipient_cannot_edit_another_users_message(client):
+    with app_module.app.app_context():
+        conn = app_module.db()
+        conn.execute("INSERT INTO messages(sender_id,recipient_id,body) VALUES(1,2,'Sender text')")
+        conn.commit()
+        message_id = conn.execute("SELECT id FROM messages ORDER BY id DESC LIMIT 1").fetchone()["id"]
+    with client.session_transaction() as session:
+        session.update(user_id=2, username="student-test", role="student", csrf_token="student-csrf")
+    response = client.post(f"/messages/{message_id}/action", data={
+        "csrf_token": "student-csrf", "action": "edit", "body": "Tampered text"
+    })
+    assert response.status_code == 403
+    with app_module.app.app_context():
+        assert app_module.db().execute("SELECT body FROM messages WHERE id=?", (message_id,)).fetchone()["body"] == "Sender text"
+
+
+def test_sender_can_delete_message_for_everyone_with_audit_history(client):
+    with app_module.app.app_context():
+        conn = app_module.db()
+        conn.execute("INSERT INTO messages(sender_id,recipient_id,body) VALUES(1,2,'Sensitive old text')")
+        conn.commit()
+        message_id = conn.execute("SELECT id FROM messages ORDER BY id DESC LIMIT 1").fetchone()["id"]
+    with client.session_transaction() as session:
+        session.update(user_id=1, username="admin-test", role="admin", csrf_token="test-csrf")
+    response = client.post(f"/messages/{message_id}/action", data={
+        "csrf_token": "test-csrf", "action": "delete_everyone"
+    })
+    assert response.status_code == 302
+    with app_module.app.app_context():
+        conn = app_module.db()
+        row = conn.execute("SELECT body, deleted_for_everyone FROM messages WHERE id=?", (message_id,)).fetchone()
+        assert row["body"] == ""
+        assert row["deleted_for_everyone"] in (1, True)
+        history = conn.execute("SELECT action, previous_body FROM message_history WHERE message_id=?", (message_id,)).fetchone()
+        assert history["action"] == "delete_for_everyone"
+        assert history["previous_body"] == "Sensitive old text"
+
+
+def test_user_can_hide_message_from_own_chat_only(client):
+    with app_module.app.app_context():
+        conn = app_module.db()
+        conn.execute("INSERT INTO messages(sender_id,recipient_id,body) VALUES(1,2,'Keep for recipient')")
+        conn.commit()
+        message_id = conn.execute("SELECT id FROM messages ORDER BY id DESC LIMIT 1").fetchone()["id"]
+    with client.session_transaction() as session:
+        session.update(user_id=1, username="admin-test", role="admin", csrf_token="test-csrf")
+    response = client.post(f"/messages/{message_id}/action", data={
+        "csrf_token": "test-csrf", "action": "delete_me"
+    })
+    assert response.status_code == 302
+    with app_module.app.app_context():
+        row = app_module.db().execute("SELECT hidden_for_sender, hidden_for_recipient FROM messages WHERE id=?", (message_id,)).fetchone()
+        assert row["hidden_for_sender"] in (1, True)
+        assert row["hidden_for_recipient"] in (0, False)
