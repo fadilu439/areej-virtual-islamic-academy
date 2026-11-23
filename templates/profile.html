@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block title %}{{ person.display_name }} | Areej Academy{% endblock %}
+{% block heading %}Account Profile{% endblock %}
+{% block content %}
+<section class="settings-panel profile-view">
+  <div class="profile-heading">
+    {% if person.profile_picture %}<img class="profile-picture-preview" src="{{ url_for('profile_avatar', user_id=person.id) }}" alt="Profile picture">{% else %}<div class="avatar">{{ person.display_name[0]|upper }}</div>{% endif %}
+    <div><h2>{{ person.display_name }}</h2><p class="muted">{{ person.role|title }} · Areej Academy</p></div>
+  </div>
+  {% if person.bio %}<div class="settings-group"><h3>About</h3><p>{{ person.bio }}</p></div>{% endif %}
+  {% if person.show_location and person.country and person.state %}<div class="settings-group"><h3>Location</h3><p>{{ person.state }}, {{ person.country }}</p></div>{% endif %}
+  {% if can_view_private %}<p class="muted">This is the information currently visible on your profile. Private account details such as date of birth, age, phone number and email are not displayed here.</p>{% else %}<p class="muted">Only information the account holder has chosen to share is shown here.</p>{% endif %}
+  <a class="btn primary" href="{{ url_for('message_conversation', contact_id=person.id) }}">Send Message</a>
+  <a class="btn" href="{{ url_for('messages_inbox') }}">Back to Message Centre</a>
+</section>
+{% endblock %}
