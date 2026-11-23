@@ -36,5 +36,6 @@ CREATE INDEX IF NOT EXISTS academic_reports_staff_date_idx ON areej_app.academic
 CREATE INDEX IF NOT EXISTS academic_reports_class_date_idx ON areej_app.academic_reports(class_id, report_date DESC);
 CREATE INDEX IF NOT EXISTS academic_reports_status_idx ON areej_app.academic_reports(status, report_date DESC);
 
+ALTER TABLE areej_app.academic_reports ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON TABLE areej_app.academic_reports FROM anon, authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE areej_app.academic_reports TO service_role;
