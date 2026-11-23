@@ -32,7 +32,7 @@ def register_finance_routes(app, db, roles, save_upload, read_upload, upload_fol
                 payments=conn.execute(f"SELECT p.*,u.display_name AS student_name,i.title AS invoice_title FROM payments p JOIN users u ON u.id=p.student_id JOIN invoices i ON i.id=p.invoice_id WHERE p.student_id IN ({marks}) ORDER BY p.created_at DESC",ids).fetchall()
             else:
                 invoices=[]; payments=[]
-        students=conn.execute("SELECT id,display_name FROM users WHERE role='student' AND is_active=1 ORDER BY display_name").fetchall() if session["role"]=="admin" else []
+        students=conn.execute("SELECT id,display_name FROM users WHERE role='student' AND is_active=TRUE ORDER BY display_name").fetchall() if session["role"]=="admin" else []
         fee_plans=conn.execute("SELECT * FROM fee_plans WHERE is_active=TRUE ORDER BY title").fetchall() if session["role"]=="admin" else []
         return render_template("finance.html",settings=settings,invoices=invoices,payments=payments,students=students,fee_plans=fee_plans,role=session["role"])
 
@@ -86,7 +86,7 @@ def register_finance_routes(app, db, roles, save_upload, read_upload, upload_fol
             flash("Enable private finance settings before issuing invoices. No public fee is displayed.", "error")
             return redirect(url_for("finance_portal"))
         student_id=request.form.get("student_id")
-        student=conn.execute("SELECT id FROM users WHERE id=? AND role='student' AND is_active=1",(student_id,)).fetchone()
+        student=conn.execute("SELECT id FROM users WHERE id=? AND role='student' AND is_active=TRUE",(student_id,)).fetchone()
         title=request.form.get("title","").strip()[:160]
         description=request.form.get("description","").strip()[:2000]
         due_date=request.form.get("due_date","").strip()
