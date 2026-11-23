@@ -74,7 +74,9 @@ def register_academic_routes(app, db, roles):
                 abort(403)
         elif report_type not in {"daily", "weekly"}:
             abort(400)
-        if (not owned or duration < 0 or duration > 240 or attendance_count < 0
+        if not owned:
+            abort(403)
+        if (duration < 0 or duration > 240 or attendance_count < 0
                 or (score is None) != (maximum is None)
                 or (score is not None and (not math.isfinite(score) or not math.isfinite(maximum)
                     or maximum <= 0 or score < 0 or score > maximum))):
