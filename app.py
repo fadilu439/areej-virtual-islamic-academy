@@ -464,18 +464,41 @@ def health():
         return {"status": "unhealthy", "service": "Areej Virtual Islamic Academy"}, 503
     return {"status": "ok", "service": "Areej Virtual Islamic Academy"}
 
+# Public URL used by Google Search Console (URL-prefix property).
+PUBLIC_SITE_URL = "https://areej-virtual-islamic-academy.onrender.com"
+
 @app.route("/robots.txt")
 def robots():
-    return ("User-agent: *\nAllow: /\nSitemap: https://areejacademy.com/sitemap.xml\n", 200, {"Content-Type": "text/plain"})
+    body = (
+        "User-agent: *\n"
+        "Allow: /\n"
+        f"Sitemap: {PUBLIC_SITE_URL}/sitemap.xml\n"
+    )
+    return body, 200, {
+        "Content-Type": "text/plain; charset=utf-8",
+        "Cache-Control": "public, max-age=3600",
+    }
 
 @app.route("/sitemap.xml")
 def sitemap():
-    xml = """<?xml version="1.0" encoding="UTF-8"?>
+    # Include only public pages intended for Google indexing.
+    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
-  <url><loc>https://areejacademy.com/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>
-  <url><loc>https://areejacademy.com/login</loc><changefreq>monthly</changefreq><priority>0.5</priority></url>
+  <url>
+    <loc>{PUBLIC_SITE_URL}/</loc>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+  <url>
+    <loc>{PUBLIC_SITE_URL}/privacy</loc>
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
+  </url>
 </urlset>"""
-    return xml, 200, {"Content-Type": "application/xml"}
+    return xml, 200, {
+        "Content-Type": "application/xml; charset=utf-8",
+        "Cache-Control": "public, max-age=3600",
+    }
 
 @app.route("/admin/backup/download")
 @roles("admin")
