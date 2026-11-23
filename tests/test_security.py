@@ -49,9 +49,29 @@ def csrf_token(client):
         return session["csrf_token"]
 
 
-def test_login_post_requires_csrf(client):
+def test_login_post_with_missing_csrf_refreshes_login_form(client):
     response = client.post("/login", data={"username": "admin-test", "password": "wrong"})
-    assert response.status_code == 403
+    assert response.status_code == 302
+    refreshed = client.get("/login")
+    assert refreshed.status_code == 200
+    assert b"Your sign-in page expired" in refreshed.data
+    with client.session_transaction() as session:
+        assert "user_id" not in session
+        assert session.get("csrf_token")
+
+
+def test_login_post_with_stale_csrf_refreshes_login_form(client):
+    old_token = csrf_token(client)
+    with client.session_transaction() as session:
+        session["csrf_token"] = "rotated-by-another-tab"
+    response = client.post(
+        "/login",
+        data={"csrf_token": old_token, "username": "admin-test", "password": "wrong"},
+    )
+    assert response.status_code == 302
+    refreshed = client.get("/login")
+    assert refreshed.status_code == 200
+    assert b"Your sign-in page expired" in refreshed.data
 
 
 def test_successful_login_regenerates_session_and_csrf(client):
