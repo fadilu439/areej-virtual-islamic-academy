@@ -20,7 +20,7 @@ def clean_database():
     with app_module.app.app_context():
         conn = app_module.db()
         for table in (
-            "payments", "invoices", "finance_settings", "message_history", "academic_reports", "assignment_submissions", "attendance", "results", "assignments",
+            "payments", "invoices", "fee_plans", "finance_settings", "message_history", "academic_reports", "assignment_submissions", "attendance", "results", "assignments",
             "learning_materials", "announcements", "parent_links", "user_preferences",
             "enrollments_academic", "classes", "messages", "enrollments",
             "courses", "login_attempts", "users",
