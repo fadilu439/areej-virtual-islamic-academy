@@ -401,6 +401,37 @@ def test_finance_starts_disabled_and_admin_controls_private_invoices(client):
         assert invoice["status"]=="unpaid"
 
 
+def test_admin_can_create_private_fee_plan_and_issue_invoice_from_it(client):
+    with app_module.app.app_context():
+        conn=app_module.db()
+        student_id=conn.execute("SELECT id FROM users WHERE username=?",("student-test",)).fetchone()["id"]
+    with client.session_transaction() as session:
+        session.update(user_id=1,username="admin-test",role="admin",csrf_token="fee-plan-csrf")
+    client.post("/admin/finance/settings",data={
+        "csrf_token":"fee-plan-csrf","currency":"NGN","fees_enabled":"1"
+    })
+    created=client.post("/admin/finance/plans/create",data={
+        "csrf_token":"fee-plan-csrf","title":"Arabic Term Plan","programme":"Arabic Grade 1",
+        "amount":"35000","billing_cycle":"termly"
+    })
+    assert created.status_code==302
+    with app_module.app.app_context():
+        plan=app_module.db().execute("SELECT id,amount,currency FROM fee_plans WHERE title='Arabic Term Plan'").fetchone()
+        assert plan is not None
+        assert plan["amount"]==35000
+    invoice=client.post("/admin/finance/invoices/create",data={
+        "csrf_token":"fee-plan-csrf","student_id":str(student_id),"fee_plan_id":str(plan["id"]),
+        "title":"","description":"","due_date":"2026-12-15"
+    })
+    assert invoice.status_code==302
+    with app_module.app.app_context():
+        saved=app_module.db().execute("SELECT fee_plan_id,title,amount,currency FROM invoices").fetchone()
+        assert saved["fee_plan_id"]==plan["id"]
+        assert saved["title"]=="Arabic Term Plan"
+        assert saved["amount"]==35000
+        assert saved["currency"]=="NGN"
+
+
 def test_student_finance_view_is_limited_to_own_invoices_and_parent_to_linked_children(client):
     with app_module.app.app_context():
         conn=app_module.db()
