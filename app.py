@@ -227,10 +227,23 @@ def init_db():
     for column, definition in {
         "is_read": "INTEGER DEFAULT 0", "read_at": "TEXT", "delivered_at": "TEXT",
         "attachment_name": "TEXT DEFAULT ''", "attachment_path": "TEXT DEFAULT ''",
-        "attachment_type": "TEXT DEFAULT ''"
+        "attachment_type": "TEXT DEFAULT ''",
+        "edited_at": "TEXT",
+        "hidden_for_sender": "INTEGER NOT NULL DEFAULT 0",
+        "hidden_for_recipient": "INTEGER NOT NULL DEFAULT 0",
+        "deleted_for_everyone": "INTEGER NOT NULL DEFAULT 0",
+        "forwarded_from_id": "INTEGER"
     }.items():
         if column not in message_columns:
             conn.execute(f"ALTER TABLE messages ADD COLUMN {column} {definition}")
+    conn.execute("""CREATE TABLE IF NOT EXISTS message_history (
+        id INTEGER PRIMARY KEY,
+        message_id INTEGER NOT NULL,
+        actor_id INTEGER NOT NULL,
+        action TEXT NOT NULL,
+        previous_body TEXT DEFAULT '',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )""")
     # Never create predictable demo accounts automatically.
     # Create the first administrator only when the deployment owner
     # explicitly supplies a private environment variable.
@@ -570,8 +583,10 @@ def message_conversation(contact_id):
     conn.commit()
     messages = conn.execute("""SELECT m.*, u.display_name AS sender_name FROM messages m
         JOIN users u ON u.id=m.sender_id
-        WHERE (m.sender_id=? AND m.recipient_id=?) OR (m.sender_id=? AND m.recipient_id=?)
-        ORDER BY m.id ASC""", (current_id, contact_id, contact_id, current_id)).fetchall()
+        WHERE ((m.sender_id=? AND m.recipient_id=?) OR (m.sender_id=? AND m.recipient_id=?))
+          AND ((m.sender_id=? AND m.hidden_for_sender=0) OR (m.recipient_id=? AND m.hidden_for_recipient=0))
+          AND m.deleted_for_everyone=0
+        ORDER BY m.id ASC""", (current_id, contact_id, contact_id, current_id, current_id, current_id)).fetchall()
     return render_template("conversation.html", contact=contact, conversation_messages=messages,
         recipients=portal_contacts(conn, session["role"]))
 
@@ -743,6 +758,84 @@ def send_message():
         VALUES(?,?,?,?,?,?,NULL)""", (session["user_id"], recipient_id, body, attachment_name, attachment_path, attachment_type))
     db().commit()
     return redirect(url_for("message_conversation", contact_id=recipient_id))
+
+
+@app.route("/messages/<int:message_id>/action", methods=["POST"])
+@roles("admin","staff","student","parent")
+def message_action(message_id):
+    conn = db()
+    current_id = session["user_id"]
+    message = conn.execute(
+        "SELECT * FROM messages WHERE id=? AND (sender_id=? OR recipient_id=?)",
+        (message_id, current_id, current_id),
+    ).fetchone()
+    if not message or message["deleted_for_everyone"]:
+        abort(404)
+    contact_id = message["recipient_id"] if message["sender_id"] == current_id else message["sender_id"]
+    action = request.form.get("action", "").strip()
+
+    if action == "edit":
+        if message["sender_id"] != current_id:
+            abort(403)
+        new_body = request.form.get("body", "").strip()
+        if not new_body or len(new_body) > 5000:
+            flash("Edited messages must contain between 1 and 5,000 characters.", "error")
+        else:
+            conn.execute(
+                "INSERT INTO message_history(message_id,actor_id,action,previous_body) VALUES(?,?,?,?)",
+                (message_id, current_id, "edit", message["body"] or ""),
+            )
+            conn.execute(
+                "UPDATE messages SET body=?, edited_at=CURRENT_TIMESTAMP WHERE id=? AND sender_id=?",
+                (new_body, message_id, current_id),
+            )
+            conn.commit()
+            flash("Message updated.", "success")
+    elif action == "delete_me":
+        column = "hidden_for_sender" if message["sender_id"] == current_id else "hidden_for_recipient"
+        conn.execute(f"UPDATE messages SET {column}=1 WHERE id=?", (message_id,))
+        conn.commit()
+        flash("Message removed from your chat.", "success")
+    elif action == "delete_everyone":
+        if message["sender_id"] != current_id:
+            abort(403)
+        conn.execute(
+            "INSERT INTO message_history(message_id,actor_id,action,previous_body) VALUES(?,?,?,?)",
+            (message_id, current_id, "delete_for_everyone", message["body"] or ""),
+        )
+        conn.execute(
+            """UPDATE messages SET body='', attachment_name='', attachment_path='',
+               attachment_type='', deleted_for_everyone=1 WHERE id=? AND sender_id=?""",
+            (message_id, current_id),
+        )
+        conn.commit()
+        flash("Message deleted for everyone.", "success")
+    elif action == "forward":
+        recipient_raw = request.form.get("recipient_id", "").strip()
+        try:
+            recipient_id = int(recipient_raw)
+        except (TypeError, ValueError):
+            recipient_id = 0
+        allowed_ids = {int(person["id"]) for person in portal_contacts(conn, session["role"])}
+        if recipient_id not in allowed_ids or recipient_id == current_id:
+            abort(403)
+        if not (message["body"] or message["attachment_path"]):
+            flash("This message cannot be forwarded.", "error")
+        else:
+            forwarded_body = message["body"] or ""
+            conn.execute(
+                """INSERT INTO messages(sender_id,recipient_id,body,attachment_name,attachment_path,
+                   attachment_type,delivered_at,forwarded_from_id)
+                   VALUES(?,?,?,?,?,?,NULL,?)""",
+                (current_id, recipient_id, forwarded_body, message["attachment_name"] or "",
+                 message["attachment_path"] or "", message["attachment_type"] or "", message_id),
+            )
+            conn.commit()
+            flash("Message forwarded.", "success")
+            return redirect(url_for("message_conversation", contact_id=recipient_id))
+    else:
+        abort(400)
+    return redirect(url_for("message_conversation", contact_id=contact_id))
 
 
 @app.route("/messages/attachment/<path:filename>")
