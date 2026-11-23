@@ -3,7 +3,7 @@
   <small>STAFF WORKSPACE</small>
   <h2>Welcome, {{ current_user.display_name }}.</h2>
   <p>Manage classroom delivery, learner progress and constructive communication from one place.</p>
-  <a class="btn light" href="#classes">View My Classes →</a>
+  <a class="btn light" href="#classes">View My Classes →</a> <a class="btn light" href="{{ url_for('staff_reports') }}">Reports & Marking →</a>
   <span class="hero-mark">✎</span>
 </section>
 
